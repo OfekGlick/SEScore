@@ -13,6 +13,8 @@ from scipy.stats import poisson
 import time
 from transformers import MBartForConditionalGeneration, MBartTokenizer
 import glob
+from our_functions import select_random_synonym, lemmatize
+from nltk import word_tokenize
 
 """Yield batch sized list of sentences."""
 
@@ -25,9 +27,9 @@ def batchify(lst, batch_size):
 def noise_sanity_check(cand_arr, num_noises, del_noise_lam=None, mask_noise_lam=None):
     # decide noise type upon function called, only sentences have one noise and step 1 can have MBart noises
     if num_noises == 1:
-        noise_type = random.choices([1, 2, 3, 4, 5, 6], weights=(0, 0, 1, 0, 0, 0), k=1)[0]
+        noise_type = random.choices([1, 2, 3, 4, 5, 6, 7, 8], weights=(0, 0, 1, 0, 0, 0, 0, 0), k=1)[0]
     else:
-        noise_type = random.choices([3, 4, 5, 6], weights=(1, 0, 0, 0), k=1)[0]
+        noise_type = random.choices([3, 4, 5, 6, 7, 8], weights=(0, 0, 0, 0, 1, 0), k=1)[0]
 
     if noise_type == 1 or noise_type == 2:
         start_index = random.choices(range(cand_arr['mbart'].shape[0]), k=1)[0]
@@ -43,8 +45,7 @@ def noise_sanity_check(cand_arr, num_noises, del_noise_lam=None, mask_noise_lam=
         if mask_noise_lam:
             num_replace = \
                 random.choices([1, 2, 3, 4, 5, 6], weights=poisson.pmf(np.arange(1, 7, 1), mu=mask_noise_lam, loc=1),
-                               k=1)[
-                    0]
+                               k=1)[0]
         else:
             num_replace = random.choices([1, 2, 3, 4, 5, 6], k=1)[0]
         # check if noise position and span length fits current noise context
@@ -69,7 +70,7 @@ def noise_sanity_check(cand_arr, num_noises, del_noise_lam=None, mask_noise_lam=
             if cand_arr['xlm'][start_index] > 0 and cand_arr['xlm'][end_index] > 0:
                 return noise_type, start_index, end_index
     # this is the delete noise
-    else:
+    elif noise_type == 6:
         if del_noise_lam:
             num_deletes = \
                 random.choices([1, 2, 3, 4], weights=poisson.pmf(np.arange(1, 5, 1), mu=del_noise_lam, loc=1), k=1)[0]
@@ -78,6 +79,13 @@ def noise_sanity_check(cand_arr, num_noises, del_noise_lam=None, mask_noise_lam=
         # check if noise position and span length fits current noise context
         if cand_arr['xlm'][start_index] >= num_deletes and cand_arr['xlm'][start_index] != 0:
             return noise_type, start_index, num_deletes
+
+    elif noise_type == 7:
+        if cand_arr['xlm'][start_index] > 0:
+            return noise_type, start_index, 1
+    else:
+        if cand_arr['xlm'][start_index] > 0:
+            return noise_type, start_index, 1
     return -1, -1, -1
 
 
@@ -109,6 +117,8 @@ def noise_schedule(id_sen_dict, step, sen_noise_dict, cand_dict_arr, del_noise_l
     xlm_replace_seg_id_ls, xlm_replace_start_ls = [], []
     swap_seg_id_ls, swap_start_ls, swap_end_ls = [], [], []
     del_seg_id_ls, del_start_ls, del_len_ls = [], [], []
+    xlm_synonym_seg_id_ls, xlm_synonym_start_ls = [], []
+    xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls = [], []
     step_noise_dict = {}
     # check if the given noise type and condition is valid and return the valid noise and condition
     for id, num_noises in sen_noise_dict.items():
@@ -145,15 +155,24 @@ def noise_schedule(id_sen_dict, step, sen_noise_dict, cand_dict_arr, del_noise_l
                     swap_start_ls.append(start_index)
                     swap_end_ls.append(num_ops)
                     step_noise_dict[id] = ['Switch', start_index, num_ops]
-                else:  # Accuracy/Omission, Fluency/Grammar
+                elif noise_type == 6:  # Accuracy/Omission, Fluency/Grammar
                     del_seg_id_ls.append(id)
                     del_start_ls.append(start_index)
                     del_len_ls.append(num_ops)
                     step_noise_dict[id] = ['Delete', start_index, num_ops]
+                elif noise_type == 7:
+                    xlm_synonym_seg_id_ls.append(id)
+                    xlm_synonym_start_ls.append(start_index)
+                    step_noise_dict[id] = ['Synonyms_replace', start_index, 1]
+                else:
+                    xlm_lemmatization_seg_id_ls.append(id)
+                    xlm_lemmatization_start_ls.append(start_index)
+                    step_noise_dict[id] = ['lemmatization_replace', start_index, 1]
 
     # seg_id_ls: a list contains all the seg_noise ids
     return mbart_add_seg_id_ls, mbart_add_start_ls, mbart_replace_seg_id_ls, mbart_replace_start_ls, mbart_replace_len_ls, xlm_add_seg_id_ls, xlm_add_start_ls, \
-           xlm_replace_seg_id_ls, xlm_replace_start_ls, swap_seg_id_ls, swap_start_ls, swap_end_ls, del_seg_id_ls, del_start_ls, del_len_ls, step_noise_dict
+           xlm_replace_seg_id_ls, xlm_replace_start_ls, swap_seg_id_ls, swap_start_ls, swap_end_ls, del_seg_id_ls, del_start_ls, del_len_ls, xlm_synonym_seg_id_ls, \
+           xlm_synonym_start_ls, xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls, step_noise_dict
 
 
 """add operation to update the candidate dict"""
@@ -316,7 +335,7 @@ def severity_measure_2_2(mnli_model, mnli_tokenizer, m, prev_batch, cur_batch, d
     scores = []
     n = 6.5788
     for prob_1, prob_2 in zip(softmax_result_1, softmax_result_2):
-        scores.append(1 - (((prob_1 / (1 / prob_1)) * prob_2 / (1 / prob_2)).item()) ** n)
+        scores.append(-(1 - (((prob_1 / (1 / prob_1)) * prob_2 / (1 / prob_2)).item()) ** n))
     return scores
 
 
@@ -362,13 +381,23 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops):
                                tok_text[0][start_index + 2:end_index + 1],
                                torch.unsqueeze(tok_text[0][start_index + 1], 0), tok_text[0][end_index + 2:]), dim=0)
         return tokenizer.decode(input_ids, skip_special_tokens=True)
-    else:
+    elif noise_type == 6:
         tok_text = \
             tokenizer(text, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
                       padding=True)[
                 'input_ids']
         input_ids = torch.cat((tok_text[0][:start_index + 1], tok_text[0][start_index + 1 + num_ops:]), dim=0)
         return tokenizer.decode(input_ids, skip_special_tokens=True)
+    elif noise_type == 7:
+        tokens = text.split(" ")
+        tokens[start_index] = select_random_synonym(tokens[start_index])
+        text = " ".join(tokens)
+        return text
+    else:
+        tokens = text.split(" ")
+        tokens[start_index] = lemmatize(tokens[start_index])
+        text = " ".join(tokens)
+        return text
 
     return tokenizer.decode(input_ids, skip_special_tokens=False)
 
@@ -449,10 +478,11 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
     print("Max Step: ", max_step)
     for step in range(1, max_step + 1):
         mbart_add_seg_id_ls, mbart_add_start_ls, mbart_replace_seg_id_ls, mbart_replace_start_ls, mbart_replace_len_ls, xlm_add_seg_id_ls, xlm_add_start_ls, \
-        xlm_replace_seg_id_ls, xlm_replace_start_ls, swap_seg_id_ls, swap_start_ls, swap_end_ls, del_seg_id_ls, del_start_ls, del_len_ls, step_noise_dict = noise_schedule(
+        xlm_replace_seg_id_ls, xlm_replace_start_ls, swap_seg_id_ls, swap_start_ls, swap_end_ls, del_seg_id_ls, del_start_ls, del_len_ls, xlm_synonym_seg_id_ls, \
+        xlm_synonym_start_ls, xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls, step_noise_dict = noise_schedule(
             id_sen_dict, step, sen_noise_dict, cand_dict_arr, del_noise_lam, mask_noise_lam)
         # produce the text for generate functions
-        mbart_ls, xlm_ls, swap_ls, delete_ls = [], [], [], []
+        mbart_ls, xlm_ls, swap_ls, delete_ls, synonym_ls, synonym_len, lemmatization_ls = [], [], [], [], [], [], []
         # construct mbart add dataset
         for id, start_index in zip(mbart_add_seg_id_ls, mbart_add_start_ls):
             mbart_ls.append(data_construct(id_sen_dict[id]['text'][-1], 1, mbart_tokenizer, start_index, 0))
@@ -471,6 +501,12 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         # construct del dataset
         for id, start_index, del_len in zip(del_seg_id_ls, del_start_ls, del_len_ls):
             delete_ls.append(data_construct(id_sen_dict[id]['text'][-1], 6, xlm_tokenizer, start_index, del_len))
+        for id, start_index in zip(xlm_synonym_seg_id_ls, xlm_synonym_start_ls):
+            data, num_of_op = data_construct(id_sen_dict[id]['text'][-1], 7, xlm_tokenizer, start_index, 0)
+            synonym_len.append(num_of_op)
+            synonym_ls.append(id)
+        for id, start_index in zip(xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls):
+            lemmatization_ls.append(data_construct(id_sen_dict[id]['text'][-1], 8, xlm_tokenizer, start_index, 0))
         print("All <mask>/non <mask> datasets are constructed for generation")
         # sentence seg id with corresponding generated texts
         new_seg_ids, new_step_ls, step_score_ls = [], [], []
@@ -494,12 +530,19 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         new_seg_ids.extend(del_seg_id_ls)  # add in all seg ids for delete
         new_step_ls.extend(delete_ls)
 
+        new_seg_ids.extend(xlm_synonym_seg_id_ls)
+        new_step_ls.extend(synonym_ls)
+        new_seg_ids.extend(xlm_lemmatization_seg_id_ls)
+        new_step_ls.extend(lemmatization_ls)
+
         # update all cand dict arr for add/replace from xlm, swap and delete noises
         cand_dict_arr = add_update_cand_dict(cand_dict_arr, xlm_add_seg_id_ls, xlm_add_start_ls)
         cand_dict_arr = replace_update_cand_dict(cand_dict_arr, xlm_replace_seg_id_ls, xlm_replace_start_ls)
         cand_dict_arr = swap_update_cand_dict(cand_dict_arr, swap_seg_id_ls, swap_start_ls, swap_end_ls)
         cand_dict_arr = delete_update_cand_dict(cand_dict_arr, del_seg_id_ls, del_start_ls, del_len_ls)
 
+        cand_dict_arr = replace_update_cand_dict(cand_dict_arr, xlm_synonym_seg_id_ls, xlm_synonym_start_ls)
+        cand_dict_arr = replace_update_cand_dict(cand_dict_arr, xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls)
         prev_step_ls = prev_ids_sens_extract(id_sen_dict, new_seg_ids)
         if step == 1:
             original = prev_step_ls.copy()
@@ -507,8 +550,8 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
 
         # use MNLI Roberta large model to determine the severities and scores
         for prev_batch, cur_batch, idx_batch in zip(batchify(prev_step_ls, batch_size_mnli),
-                                         batchify(new_step_ls, batch_size_mnli),
-                                         batchify(new_seg_ids, batch_size_mnli)):
+                                                    batchify(new_step_ls, batch_size_mnli),
+                                                    batchify(new_seg_ids, batch_size_mnli)):
             if severity == 'original':
                 temp_scores_ls = severity_measure(mnli_model, mnli_tokenizer, m, prev_batch, cur_batch, device)
             elif severity == 'type_1':
