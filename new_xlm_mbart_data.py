@@ -34,7 +34,7 @@ def noise_sanity_check(cand_arr, num_noises, del_noise_lam=None, mask_noise_lam=
                            k=1)[
                 0]
     else:
-        noise_type = random.choices([3, 4, 5, 6, 7, 8], weights=(1 / 4, 1 / 4, 1 / 4, 1 / 4, 0 , 0), k=1)[0]
+        noise_type = random.choices([3, 4, 5, 6, 7, 8], weights=(1 / 4, 1 / 4, 1 / 4, 1 / 4, 0, 0), k=1)[0]
 
     if noise_type == 1 or noise_type == 2:
         start_index = random.choices(range(cand_arr['mbart'].shape[0]), k=1)[0]

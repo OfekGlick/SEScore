@@ -1,9 +1,9 @@
 import random
-import nltk
-
 from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
 from nltk import pos_tag, word_tokenize
+import nltk
+
 
 def select_random_synonym(word):
     synonyms = set()
@@ -16,13 +16,15 @@ def select_random_synonym(word):
     return random.sample(synonyms, 1)[0]
 
 
-def lemmatize(words,index):
+def lemmatize(words, index):
     wml = WordNetLemmatizer()
     tag = pos_tag(words)[index][1]
     tag = tag if tag in ['a', 'r', 'n', 'v'] else None
     if tag is None:
         return word
     return wml.lemmatize(word, pos=tag)
+
+
 mapping = {}
 
 # nltk.download('wordnet')
