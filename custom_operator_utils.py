@@ -5,24 +5,25 @@ from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
 from nltk import pos_tag, word_tokenize
 
-
 def select_random_synonym(word):
     synonyms = set()
     synonyms.add(word)
     for syn in wordnet.synsets(word):
         for l in syn.lemmas():
-            synonyms.add(l.name())
+            synonym = l.name().split('_')
+            if len(synonym) == 1:
+                synonyms.add(synonym[0])
     return random.sample(synonyms, 1)[0]
 
 
-def lemmatize(word):
+def lemmatize(words,index):
     wml = WordNetLemmatizer()
-    tag = pos_tag(word)[0][1][0].lower()
+    tag = pos_tag(words)[index][1]
     tag = tag if tag in ['a', 'r', 'n', 'v'] else None
     if tag is None:
         return word
     return wml.lemmatize(word, pos=tag)
-
+mapping = {}
 
 # nltk.download('wordnet')
 # nltk.download('omw-1.4')
