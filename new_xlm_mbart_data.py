@@ -30,11 +30,11 @@ def noise_sanity_check(cand_arr, num_noises, del_noise_lam=None, mask_noise_lam=
     # decide noise type upon function called, only sentences have one noise and step 1 can have MBart noises
     if num_noises == 1:
         noise_type = \
-            random.choices([1, 2, 3, 4, 5, 6, 7, 8], weights=(1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 0, 0),
+            random.choices([1, 2, 3, 4, 5, 6, 7, 8], weights=(1 / 8, 1 / 8, 1 / 8, 1 / 8, 1 / 8, 1 / 8, 1/8, 1/8),
                            k=1)[
                 0]
     else:
-        noise_type = random.choices([3, 4, 5, 6, 7, 8], weights=(1 / 4, 1 / 4, 1 / 4, 1 / 4, 0 , 0), k=1)[0]
+        noise_type = random.choices([3, 4, 5, 6, 7, 8], weights=(1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6 , 1 / 6), k=1)[0]
 
     if noise_type == 1 or noise_type == 2:
         start_index = random.choices(range(cand_arr['mbart'].shape[0]), k=1)[0]
@@ -464,7 +464,7 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_toke
         return text
     else:
         words = text.split(' ')
-        words[start_index] = lemmatize(words, start_index)
+        words[start_index] = lemmatize(words[start_index])
         text = ' '.join(words)
         return text
 
