@@ -1,10 +1,12 @@
 import random
-import nltk
 
 from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
 from nltk import pos_tag, word_tokenize
 import spacy
+import nltk
+
+
 def select_random_synonym(word):
     synonyms = set()
     synonyms.add(word)
@@ -15,8 +17,8 @@ def select_random_synonym(word):
                 synonyms.add(synonym[0])
     return random.sample(synonyms, 1)[0]
 
-def get_wordnet_pos(treebank_tag):
 
+def get_wordnet_pos(treebank_tag):
     if treebank_tag.startswith('J'):
         return wordnet.ADJ
     elif treebank_tag.startswith('V'):
@@ -27,6 +29,8 @@ def get_wordnet_pos(treebank_tag):
         return wordnet.ADV
     else:
         return None
+
+
 def lemmatize(word):
     # load_model = spacy.load("en_core_web_sm")
     # doc = load_model(text)
@@ -36,6 +40,8 @@ def lemmatize(word):
     if pos is None:
         return word
     return wml.lemmatize(word, pos=pos)
+
+
 mapping = {}
 
 # nltk.download('wordnet')
