@@ -1,4 +1,3 @@
-![Alt text](image/logo_sescore.png?raw=true "Sescore logo")
 
 # SEScore
 
