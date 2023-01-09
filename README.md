@@ -1,17 +1,26 @@
 
 # SEScore
 
-## Best unsupervised evaluation metric in WMT22 in all language pairs and domains! 
+## Description
+In this repo we explore different methods to improve the already great SEScore evaluation metric.<br>
 
-This repo contains all the codes for SEScore implementation. SEScore is a reference-based text-generation evaluation metric that requires no pre-human-annotated error data, described in our paper [Not All Errors are Equal: Learning Text Generation Metrics using Stratified Error Synthesis.](https://arxiv.org/abs/2210.05035) from EMNLP 2022. Reader can refer https://research.google/pubs/pub51897/ for our WMT22 results!
+### Background
+SEScore is a reference-based text-generation evaluation metric that requires no pre-human-annotated error data, described in the paper [Not All Errors are Equal: Learning Text Generation Metrics using Stratified Error Synthesis.]<br>
+Generally speaking, the paper describes a stratified dataset synthesis pipeline where sentences get corrupted via pre-defined methods, then the newly corruped sentences gets a score that represends how "severe" the corruption via bi-directional entailment and finally we train a NN to learn the scores accumulated by the bi-directional entailment model. <br>
+While this method performs very well and has improved upon the SOTA, we believe there is room for improvement.
 
-Its effectiveness over prior methods like BLEU, BERTScore, BARTScore, PRISM, COMET and BLEURT has been demonstrated on a diverse set of language generation tasks, including translation, captioning, and web text generation. [Readers have even described SEScore as "one unsupervised evaluation to rule them all"](https://twitter.com/LChoshen/status/1580136005654700033) and we are very excited to share it with you!
- 
-## How to run our code?
-We hosted our SEScore metric and running instructions on HuggingFace: https://huggingface.co/spaces/xu1998hz/sescore
+### Suggested improvements
+1. The paper describes a stratified way to accumulated errors via corruption of the sentences. The corruption of the sentences occurs by Adding/Replacing/Deleting/Swapping tokens in the original sentence. While effective, recent papers showed more effective masking techniques which could help create more meaningfull corruption. Our first proposal would be to use [PMI masking](https://arxiv.org/abs/2010.01825) instead of token masking in the corruption of the sententces.
+2. The severity score used in the paper followed the MQM metric of assessing the severity of errors in text. Again, while this metric has been based in many papers, the accumulative nature of the suggested severity score causes it to suffer from monotinicity, which could not accurately represent the changes happening in the newly corrupted sentece. Additionally, the metric is discrete and this is could lead loss of information when attributing severity to an error.<br>
+We propose two changes to the severity score metric which will allow it to be non-monotonic and also continuous. For more details please refer to the `Research Proposal.pptx` file
 
-## Run new_xlm_mbart_data.py for English:
-python3 new_xlm_mbart_data.py -num_var 10 -lang en_XX -src case_study_src -ref case_study_ref -save save_file_name
+### Results
+Will be published soon.
 
-## Run new_xlm_mbart_data.py for German:
-python3 new_xlm_mbart_data.py -num_var 10 -lang de_DE -src src_folder -ref ref_folder -save save_file_name
+## How to run?
+### Run new_xlm_mbart_data.py for English:
+python3 new_xlm_mbart_data.py -num_var 10 -lang en_XX -src case_study_src -ref case_study_ref -save save_file_name -severity ['original','2_1','2_2'] -whole_words True
+
+# Disclaimer
+Most of the work done on this project was by the original authors of the paper! We simply added our methods and tested their effectiveness. All credits of the original work goes to the original authors. 
+
