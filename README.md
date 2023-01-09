@@ -6,7 +6,7 @@ In this repo we explore different methods to improve the already great SEScore e
 
 ### Background
 SEScore is a reference-based text-generation evaluation metric that requires no pre-human-annotated error data, described in the paper [Not All Errors are Equal: Learning Text Generation Metrics using Stratified Error Synthesis.](https://arxiv.org/abs/2210.05035)<br>
-Generally speaking, the paper describes a stratified dataset synthesis pipeline where sentences get corrupted via pre-defined methods, then the newly corruped sentences gets a score that represends how "severe" the corruption via bi-directional entailment and finally we train a NN to learn the scores accumulated by the bi-directional entailment model. <br>
+Generally speaking, the paper describes a stratified dataset synthesis pipeline where sentences get corrupted via pre-defined methods, then the newly corrupted sentences receive a score that represends how "severe" the corruption was via bi-directional entailment and finally we train a NN to learn the scores accumulated by the bi-directional entailment model. <br>
 While this method performs very well and has improved upon the SOTA, we believe there is room for improvement.
 
 ### Suggested improvements
