@@ -4,6 +4,7 @@ from transformers import GPT2LMHeadModel, GPT2Tokenizer
 import torch
 from tqdm import tqdm
 import math
+from nltk import ngrams
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoModelForMaskedLM
 import torch.nn as nn
 import csv
@@ -21,6 +22,15 @@ import string
 """Yield batch sized list of sentences."""
 
 
+def parse_pmi(owt=False):
+    filename = f"PMI/pmi-{'owt-' if owt else ''}wiki-bc_clean.txt"
+    with open(filename) as f:
+        data = f.read().split("\n")
+        result = sorted([(len(row), row) for row in data], key=lambda x: x[0], reverse=True)
+        result = set([unit for _, unit in result])
+    return result
+
+
 def batchify(lst, batch_size):
     for i in range(0, len(lst), batch_size):
         yield lst[i:min(i + batch_size, len(lst))]
@@ -30,11 +40,11 @@ def noise_sanity_check(cand_arr, num_noises, del_noise_lam=None, mask_noise_lam=
     # decide noise type upon function called, only sentences have one noise and step 1 can have MBart noises
     if num_noises == 1:
         noise_type = \
-            random.choices([1, 2, 3, 4, 5, 6, 7, 8], weights=(1 / 8, 1 / 8, 1 / 8, 1 / 8, 1 / 8, 1 / 8, 1/8, 1/8),
+            random.choices([1, 2, 3, 4, 5, 6, 7, 8], weights=(0, 0, 1 / 4, 1 / 4, 1 / 4, 0, 0, 0),
                            k=1)[
                 0]
     else:
-        noise_type = random.choices([3, 4, 5, 6, 7, 8], weights=(1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6 , 1 / 6), k=1)[0]
+        noise_type = random.choices([3, 4, 5, 6, 7, 8], weights=(1 / 6, 1 / 6, 1 / 6, 1 / 6, 0, 0), k=1)[0]
 
     if noise_type == 1 or noise_type == 2:
         start_index = random.choices(range(cand_arr['mbart'].shape[0]), k=1)[0]
@@ -88,6 +98,7 @@ def noise_sanity_check(cand_arr, num_noises, del_noise_lam=None, mask_noise_lam=
     elif noise_type == 7:
         if cand_arr['xlm'][start_index] > 0:
             return noise_type, start_index, 1
+
     else:
         if cand_arr['xlm'][start_index] > 0:
             return noise_type, start_index, 1
@@ -392,13 +403,15 @@ def infer_ops_num_and_start_index_xlm(text, tokenizer, start_index, num_ops):
     return token_start, new_ops
 
 
-def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_token=True):
+def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_token=True, pmi=True):
     if not words_token:
         start_index += 1  # to incorporate beginning token
     if noise_type == 1:
         if words_token:
             start_index = infer_token_location_index_mbart(text, tokenizer, start_index)
         sen = '</s> ' + text
+        if pmi:
+            sen = sen.replace("☘", " ")
         tok_text = \
             tokenizer(sen, add_special_tokens=True, return_tensors="pt", max_length=128, truncation=True,
                       padding=True)[
@@ -411,6 +424,8 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_toke
         if words_token:
             start_index, num_ops = infer_ops_num_and_start_index_mbart(text, tokenizer, start_index, num_ops)
         sen = '</s> ' + text
+        if pmi:
+            sen = sen.replace("☘", " ")
         tok_text = \
             tokenizer(sen, add_special_tokens=True, return_tensors="pt", max_length=128, truncation=True, padding=True)[
                 'input_ids']
@@ -419,6 +434,8 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_toke
     elif noise_type == 3:
         if words_token:
             start_index = infer_token_location_index_xlm(text, tokenizer, start_index)
+        if pmi:
+            text = text.replace("☘", " ")
         tok_text = \
             tokenizer(text, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
                       padding=True)[
@@ -429,6 +446,8 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_toke
     elif noise_type == 4:
         if words_token:
             start_index, num_ops = infer_ops_num_and_start_index_xlm(text, tokenizer, start_index, num_ops)
+        if pmi:
+            text = text.replace("☘", " ")
         tok_text = \
             tokenizer(text, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
                       padding=True)[
@@ -440,6 +459,8 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_toke
             start_index = infer_token_location_index_xlm(text, tokenizer, start_index)
             num_ops = infer_token_location_index_xlm(text, tokenizer, num_ops)
         end_index = num_ops
+        if pmi:
+            text = text.replace("☘", " ")
         tok_text = \
             tokenizer(text, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
                       padding=True)[
@@ -448,21 +469,29 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_toke
                                tok_text[0][start_index + 2:end_index + 1],
                                torch.unsqueeze(tok_text[0][start_index + 1], 0), tok_text[0][end_index + 2:]), dim=0)
         return tokenizer.decode(input_ids, skip_special_tokens=True)
+
     elif noise_type == 6:
         if words_token:
             start_index, num_ops = infer_ops_num_and_start_index_xlm(text, tokenizer, start_index, num_ops)
+        if pmi:
+            text = text.replace("☘", " ")
         tok_text = \
             tokenizer(text, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
                       padding=True)[
                 'input_ids']
         input_ids = torch.cat((tok_text[0][:start_index + 1], tok_text[0][start_index + 1 + num_ops:]), dim=0)
         return tokenizer.decode(input_ids, skip_special_tokens=True)
+
     elif noise_type == 7:
+        if pmi:
+            text = text.replace("☘", " ")
         tokens = text.split(" ")
         tokens[start_index] = select_random_synonym(tokens[start_index])
         text = " ".join(tokens)
         return text
     else:
+        if pmi:
+            text = text.replace("☘", " ")
         words = text.split(' ')
         words[start_index] = lemmatize(words[start_index])
         text = ' '.join(words)
@@ -502,7 +531,7 @@ def xlm_roberta_generate(batch_text, model, xlm_tokenizer, device):
 
 
 def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_lam, mask_noise_lam, device,
-                        severity='original', word_tokens=True):
+                        severity='original', word_tokens=True, pmi=True):
     # load in XLM-Roberta model
     # xlm_tokenizer = AutoTokenizer.from_pretrained('xlm-roberta-large')
     # xlm_model = AutoModelForMaskedLM.from_pretrained("xlm-roberta-lbase").to(device)
@@ -518,10 +547,24 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
     cand_dict_arr = {}
     id_sen_score_dict = {}
     id_sen_dict = {}  # id_sen_dict is a dict containing "score" and "text" fields, "text" field is a list which contains a history of all generated sentences
+    pmi_order = parse_pmi(False)
     for line_index, ref_line in enumerate(ref_lines):
         for i in range(num_var):
             id = str(line_index) + '_' + str(i)
             if word_tokens:
+                words = ref_line.split(' ')
+                if pmi:
+                    used_indecies = [0 for _ in range(len(words))]
+                    for n in range(4, 1, -1):
+                        ngrams_lst = ngrams(ref_line.split(), n)
+                        for k, gram in enumerate(ngrams_lst):
+                            gram_txt = " ".join(gram)
+                            flag = not any([used_indecies[j] for j in range(k, k + n)])
+                            if gram_txt in pmi_order and flag:
+                                for j in range(k, k + n):
+                                    used_indecies[j] = 1
+                                gram_txt_replace = gram_txt.replace(" ", "☘")
+                                ref_line = ref_line.replace(gram_txt, gram_txt_replace)
                 words = ref_line.split(' ')
                 tok_xlm_ls = words
                 tok_mbart_ls = words
