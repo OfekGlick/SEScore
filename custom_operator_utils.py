@@ -1,10 +1,18 @@
 import random
-
 from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
 from nltk import pos_tag, word_tokenize
 import spacy
 import nltk
+
+
+def parse_pmi(owt=False):
+    filename = f"PMI/pmi-{'owt-' if owt else ''}wiki-bc_clean.txt"
+    with open(filename) as f:
+        data = f.read().split("\n")
+        result = sorted([(len(row), row) for row in data], key=lambda x: x[0], reverse=True)
+        result = set([unit for _, unit in result])
+    return result
 
 
 def select_random_synonym(word):
