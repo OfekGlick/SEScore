@@ -18,7 +18,7 @@ from custom_operator_utils import select_random_synonym, lemmatize
 from nltk import word_tokenize
 import re
 import string
-
+from mqm_preprocess import preprocess_wmt_data
 """Yield batch sized list of sentences."""
 
 
@@ -712,36 +712,40 @@ def main(num_var, lang, src, ref, save, severity, words_token=True):
     save_name = save + f'_num_{noise_planner_num}_del_{del_noise_lam}_mask_{mask_noise_lam}_xlm_mbart.csv'
     csvfile = open(save_name, 'w')
     csvwriter = csv.writer(csvfile)
-    fields = ['src', 'mt', 'ref', 'score']
+    #fields = ['src', 'mt', 'ref', 'score']
+    fields = ['mt', 'ref', 'score']
     csvwriter.writerow(fields)
 
     segFile = open(f"{save}_zhen_num_{noise_planner_num}_del_{del_noise_lam}_mask_{mask_noise_lam}_xlm_mbart.tsv", 'wt')
     tsv_writer = csv.writer(segFile, delimiter='\t')
 
-    for src_file, ref_file in zip(sorted(list(glob.glob(src + '/*'))), sorted(list(glob.glob(ref + '/*')))):
-        ref_lines = open(ref_file, 'r').readlines()
-        src_lines = open(src_file, 'r').readlines()
-        ref_lines = [" ".join(line[:-1].split()) for line in ref_lines]
-        src_lines = [" ".join(line[:-1].split()) for line in src_lines]
+    #for src_file, ref_file in zip(sorted(list(glob.glob(src + '/*'))), sorted(list(glob.glob(ref + '/*')))):
 
-        print("Text Preprocessed to remove newline and Seed: 12")
+    ref_file = 'case_study_ref/wmt_train.txt'
+    ref_lines = open(ref_file, 'r').readlines()
+    # src_lines = open(src_file, 'r').readlines()
+    ref_lines = [" ".join(line[:-1].split()) for line in ref_lines]
+    #src_lines = [" ".join(line[:-1].split()) for line in src_lines]
 
-        start = time.time()
-        id_sen_dict, id_sen_score_dict = text_score_generate(int(num_var), lang, ref_lines, noise_planner_num,
-                                                             del_noise_lam, mask_noise_lam, device, severity,
-                                                             words_token)
-        print("Total generated sentences for one subfile: ", len(id_sen_dict))
+    print("Text Preprocessed to remove newline and Seed: 12")
 
-        for key, value in id_sen_dict.items():
-            seg_id = int(key.split('_')[0])
-            noise_sen, score = value['text'][-1], value['score']  # the last processed noise sentence
-            csvwriter.writerow([src_lines[seg_id], noise_sen, ref_lines[seg_id], score])
+    start = time.time()
+    id_sen_dict, id_sen_score_dict = text_score_generate(int(num_var), lang, ref_lines, noise_planner_num,
+                                                         del_noise_lam, mask_noise_lam, device, severity,
+                                                         words_token)
+    print("Total generated sentences for one subfile: ", len(id_sen_dict))
 
-        for _, values in id_sen_score_dict.items():
-            tsv_writer.writerow(values)
+    for key, value in id_sen_dict.items():
+        seg_id = int(key.split('_')[0])
+        noise_sen, score = value['text'][-1], value['score']  # the last processed noise sentence
+        #csvwriter.writerow([src_lines[seg_id], noise_sen, ref_lines[seg_id], score])
+        csvwriter.writerow([ noise_sen, ref_lines[seg_id], score])
 
-        print(f"Finished in {time.time() - start} seconds")
-        print(f"{csvfile} Subfile outputs are saved in regression csv format!")
+    for _, values in id_sen_score_dict.items():
+        tsv_writer.writerow(values)
+
+    print(f"Finished in {time.time() - start} seconds")
+    print(f"{csvfile} Subfile outputs are saved in regression csv format!")
 
 
 if __name__ == "__main__":
