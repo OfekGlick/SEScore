@@ -42,7 +42,7 @@ class robertaEncoder(BERTEncoder):
 
 
 class OurSEScore(ReferencelessRegression):
-    def __init__(self,drop_out, pretrained_model='xlm-roberta-large'):
+    def __init__(self, drop_out, pretrained_model='xlm-roberta-large'):
         super(ReferencelessRegression, self).__init__()
         self.estimator = nn.Sequential(
             nn.Linear(in_features=4096, out_features=2048, bias=True),
@@ -93,18 +93,22 @@ def tokenize_and_pad(batch):
 
 def load_dataset(path):
     pass
+
+
 def parser_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-lr', default=1e-3)
-    parser.add_argument('-batch_size',default = 16)
-    parser.add_argument('-epochs',default = 1)
-    parser.add_argument('-drop_out',default = 0.15)
-    parser.add_argument('-beta_1',default = 0.9)
+    parser.add_argument('-batch_size', default=16)
+    parser.add_argument('-epochs', default=1)
+    parser.add_argument('-drop_out', default=0.15)
+    parser.add_argument('-beta_1', default=0.9)
     parser.add_argument('-beta_2', default=0.99)
-    parser.add_argument('-train_path',default = None)
-    parser.add_argument('-test_path',default = None)
+    parser.add_argument('-train_path', default=None)
+    parser.add_argument('-test_path', default=None)
     args = parser.parse_args()
     return args
+
+
 def train():
     args = parser_args()
     lr = args.lr
@@ -117,7 +121,7 @@ def train():
     drop_out = args.drop_out
     score_function = OurSEScore(drop_out=drop_out)
     loss_function = nn.MSELoss()
-    optimizer = torch.optim.Adam(score_function.parameters(), lr=lr, betas=(beta_1,beta_2))
+    optimizer = torch.optim.Adam(score_function.parameters(), lr=lr, betas=(beta_1, beta_2))
     train_dataset = load_dataset(train_path)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=tokenize_and_pad)
     test_dataset = load_dataset(test_path)
@@ -128,7 +132,8 @@ def train():
         for batch in train_dataloader:
             references_input_ids, references_attention_masks, predictions_input_ids, predictions_attention_masks, scores = batch
             predicted_scores = score_function.forward(references_input_ids, references_attention_masks,
-                                                      predictions_input_ids, predictions_attention_masks)['score'].squeeze()
+                                                      predictions_input_ids, predictions_attention_masks)[
+                'score'].squeeze()
             loss = loss_function(predicted_scores, scores)
             loss.backward()
             optimizer.step()
@@ -141,7 +146,8 @@ def train():
             for batch in test_dataloader:
                 references_input_ids, references_attention_masks, predictions_input_ids, predictions_attention_masks, scores = batch
                 predicted_scores = score_function.forward(references_input_ids, references_attention_masks,
-                                                          predictions_input_ids, predictions_attention_masks)['score'].squeeze()
+                                                          predictions_input_ids, predictions_attention_masks)[
+                    'score'].squeeze()
                 test_predictions.append(predicted_scores)
                 test_real_scores.append(scores)
             test_predictions = torch.stack(test_predictions, dim=0)
