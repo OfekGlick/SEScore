@@ -36,15 +36,20 @@ def batchify(lst, batch_size):
         yield lst[i:min(i + batch_size, len(lst))]
 
 
-def noise_sanity_check(cand_arr, num_noises, del_noise_lam=None, mask_noise_lam=None):
+def noise_sanity_check(cand_arr, num_noises, del_noise_lam=None, mask_noise_lam=None, pmi=True):
     # decide noise type upon function called, only sentences have one noise and step 1 can have MBart noises
     if num_noises == 1:
-        noise_type = \
-            random.choices([1, 2, 3, 4, 5, 6, 7, 8], weights=(0, 0, 1 / 4, 1 / 4, 1 / 4, 0, 0, 0),
-                           k=1)[
-                0]
+        if pmi:
+            noise_type = \
+                random.choices([1, 2, 3, 4, 5, 6, 7, 8], weights=(1/6, 1/6, 1 / 6, 1 / 6, 1 / 6, 1/6, 0, 0), k=1)[0]
+        else:
+            noise_type = \
+                random.choices([1, 2, 3, 4, 5, 6, 7, 8], weights=(1/8, 1/8, 1/8, 1/8, 1/8, 1/8, 1/8, 1/8), k=1)[0]
     else:
-        noise_type = random.choices([3, 4, 5, 6, 7, 8], weights=(1 / 6, 1 / 6, 1 / 6, 1 / 6, 0, 0), k=1)[0]
+        if pmi:
+            noise_type = random.choices([3, 4, 5, 6, 7, 8], weights=(1 / 4, 1 / 4, 1 / 4, 1 / 4, 0, 0), k=1)[0]
+        else:
+            noise_type = random.choices([3, 4, 5, 6, 7, 8], weights=(1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6), k=1)[0]
 
     if noise_type == 1 or noise_type == 2:
         start_index = random.choices(range(cand_arr['mbart'].shape[0]), k=1)[0]
@@ -125,7 +130,7 @@ def noise_planner(num_var, num_texts, lam):
     dict: key->segID_noiseID, value->[original sentence, noise1, noise2, ... noisek]"""
 
 
-def noise_schedule(id_sen_dict, step, sen_noise_dict, cand_dict_arr, del_noise_lam, mask_noise_lam):
+def noise_schedule(id_sen_dict, step, sen_noise_dict, cand_dict_arr, del_noise_lam, mask_noise_lam, pmi=True):
     # all the necessary information to construct all 6 noise types
     mbart_add_seg_id_ls, mbart_add_start_ls = [], []
     mbart_replace_seg_id_ls, mbart_replace_start_ls, mbart_replace_len_ls = [], [], []
@@ -141,7 +146,7 @@ def noise_schedule(id_sen_dict, step, sen_noise_dict, cand_dict_arr, del_noise_l
         # check if the segment has the valid number of noise for current step
         if step <= num_noises:
             noise_type, start_index, num_ops = noise_sanity_check(cand_dict_arr[id], num_noises, del_noise_lam,
-                                                                  mask_noise_lam)
+                                                                  mask_noise_lam, pmi)
             # only if random selected error type and error number is valid
             if noise_type != -1:
                 # type1: MBart Addition noise
@@ -597,31 +602,31 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         mbart_add_seg_id_ls, mbart_add_start_ls, mbart_replace_seg_id_ls, mbart_replace_start_ls, mbart_replace_len_ls, xlm_add_seg_id_ls, xlm_add_start_ls, \
         xlm_replace_seg_id_ls, xlm_replace_start_ls, swap_seg_id_ls, swap_start_ls, swap_end_ls, del_seg_id_ls, del_start_ls, del_len_ls, xlm_synonym_seg_id_ls, \
         xlm_synonym_start_ls, xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls, step_noise_dict = noise_schedule(
-            id_sen_dict, step, sen_noise_dict, cand_dict_arr, del_noise_lam, mask_noise_lam)
+            id_sen_dict, step, sen_noise_dict, cand_dict_arr, del_noise_lam, mask_noise_lam, pmi=pmi)
         # produce the text for generate functions
         mbart_ls, xlm_ls, swap_ls, delete_ls, synonym_ls, lemmatization_ls = [], [], [], [], [], []
         # construct mbart add dataset
         for id, start_index in zip(mbart_add_seg_id_ls, mbart_add_start_ls):
-            mbart_ls.append(data_construct(id_sen_dict[id]['text'][-1], 1, mbart_tokenizer, start_index, 0))
+            mbart_ls.append(data_construct(id_sen_dict[id]['text'][-1], 1, mbart_tokenizer, start_index, 0,pmi=pmi))
         # construct mbart replace dataset
         for id, start_index, replace_len in zip(mbart_replace_seg_id_ls, mbart_replace_start_ls, mbart_replace_len_ls):
             mbart_ls.append(data_construct(id_sen_dict[id]['text'][-1], 2, mbart_tokenizer, start_index, replace_len))
         # construct xlm add daatset
         for id, start_index in zip(xlm_add_seg_id_ls, xlm_add_start_ls):
-            xlm_ls.append(data_construct(id_sen_dict[id]['text'][-1], 3, xlm_tokenizer, start_index, 0))
+            xlm_ls.append(data_construct(id_sen_dict[id]['text'][-1], 3, xlm_tokenizer, start_index, 0,pmi=pmi))
         # construct xlm replace dataset
         for id, start_index in zip(xlm_replace_seg_id_ls, xlm_replace_start_ls):
-            xlm_ls.append(data_construct(id_sen_dict[id]['text'][-1], 4, xlm_tokenizer, start_index, 1))
+            xlm_ls.append(data_construct(id_sen_dict[id]['text'][-1], 4, xlm_tokenizer, start_index, 1,pmi=pmi))
         # construct swap dataset
         for id, start_index, end_index in zip(swap_seg_id_ls, swap_start_ls, swap_end_ls):
-            swap_ls.append(data_construct(id_sen_dict[id]['text'][-1], 5, xlm_tokenizer, start_index, end_index))
+            swap_ls.append(data_construct(id_sen_dict[id]['text'][-1], 5, xlm_tokenizer, start_index, end_index,pmi=pmi))
         # construct del dataset
         for id, start_index, del_len in zip(del_seg_id_ls, del_start_ls, del_len_ls):
-            delete_ls.append(data_construct(id_sen_dict[id]['text'][-1], 6, xlm_tokenizer, start_index, del_len))
+            delete_ls.append(data_construct(id_sen_dict[id]['text'][-1], 6, xlm_tokenizer, start_index, del_len,pmi=pmi))
         for id, start_index in zip(xlm_synonym_seg_id_ls, xlm_synonym_start_ls):
-            synonym_ls.append(data_construct(id_sen_dict[id]['text'][-1], 7, xlm_tokenizer, start_index, 0))
+            synonym_ls.append(data_construct(id_sen_dict[id]['text'][-1], 7, xlm_tokenizer, start_index, 0,pmi=pmi))
         for id, start_index in zip(xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls):
-            lemmatization_ls.append(data_construct(id_sen_dict[id]['text'][-1], 8, xlm_tokenizer, start_index, 0))
+            lemmatization_ls.append(data_construct(id_sen_dict[id]['text'][-1], 8, xlm_tokenizer, start_index, 0,pmi=pmi))
         print("All <mask>/non <mask> datasets are constructed for generation")
         # sentence seg id with corresponding generated texts
         new_seg_ids, new_step_ls, step_score_ls = [], [], []
@@ -701,7 +706,7 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
 @click.option('-ref')
 @click.option('-save')
 @click.option('-severity')
-def main(num_var, lang, src, ref, save, severity, words_token=True):
+def main(num_var, lang, src, ref, save, severity, words_token=True, pmi=True):
     """num_var: specifies number of different variants we create for each segment, lang: language code for model,
     src: source folder, ref: reference folder, save: file to save all the generated noises"""
     # load into reference file
@@ -732,7 +737,7 @@ def main(num_var, lang, src, ref, save, severity, words_token=True):
     start = time.time()
     id_sen_dict, id_sen_score_dict = text_score_generate(int(num_var), lang, ref_lines, noise_planner_num,
                                                          del_noise_lam, mask_noise_lam, device, severity,
-                                                         words_token)
+                                                         words_token,pmi=pmi)
     print("Total generated sentences for one subfile: ", len(id_sen_dict))
 
     for key, value in id_sen_dict.items():
