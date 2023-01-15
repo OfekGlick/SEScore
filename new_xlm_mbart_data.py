@@ -19,6 +19,7 @@ from nltk import word_tokenize
 import re
 import string
 from mqm_preprocess import preprocess_wmt_data
+
 """Yield batch sized list of sentences."""
 
 
@@ -39,12 +40,15 @@ def batchify(lst, batch_size):
 def noise_sanity_check(cand_arr, num_noises, del_noise_lam=None, mask_noise_lam=None, pmi=True):
     # decide noise type upon function called, only sentences have one noise and step 1 can have MBart noises
     if num_noises == 1:
+        # TODO: change the if pmi: statements to include yoni's operators, currently if PMI is enabled then yoni'ws operators receive no weight
         if pmi:
             noise_type = \
-                random.choices([1, 2, 3, 4, 5, 6, 7, 8], weights=(1/6, 1/6, 1 / 6, 1 / 6, 1 / 6, 1/6, 0, 0), k=1)[0]
+                random.choices([1, 2, 3, 4, 5, 6, 7, 8], weights=(1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 0, 0), k=1)[
+                    0]
         else:
             noise_type = \
-                random.choices([1, 2, 3, 4, 5, 6, 7, 8], weights=(1/8, 1/8, 1/8, 1/8, 1/8, 1/8, 1/8, 1/8), k=1)[0]
+                random.choices([1, 2, 3, 4, 5, 6, 7, 8],
+                               weights=(1 / 8, 1 / 8, 1 / 8, 1 / 8, 1 / 8, 1 / 8, 1 / 8, 1 / 8), k=1)[0]
     else:
         if pmi:
             noise_type = random.choices([3, 4, 5, 6, 7, 8], weights=(1 / 4, 1 / 4, 1 / 4, 1 / 4, 0, 0), k=1)[0]
@@ -363,9 +367,11 @@ def severity_measure_2_2(mnli_model, mnli_tokenizer, m, prev_batch, cur_batch, d
 # The reason we work this way (include the word in this calculation) is because we want all the word
 # tokens to be included.Then we remove 1 in order to work with the code.
 # If we worked with the word before, we don't know how many tokens the next word is.
-def infer_token_location_index_mbart(text, tokenizer, index):
+def infer_token_location_index_mbart(text, tokenizer, index, pmi):
     words = text.split(' ')
     sub_sen = '</s> ' + " ".join(words[:index + 1])
+    if pmi:
+        sub_sen = sub_sen.replace("♣", " ")
     tok_text = \
         tokenizer(sub_sen, add_special_tokens=True, return_tensors="pt", max_length=128, truncation=True, padding=True)[
             'input_ids'][0]
@@ -374,10 +380,12 @@ def infer_token_location_index_mbart(text, tokenizer, index):
     return new_start_index
 
 
-def infer_ops_num_and_start_index_mbart(text, tokenizer, start_index, num_ops):
-    token_start = infer_token_location_index_mbart(text, tokenizer, start_index)
+def infer_ops_num_and_start_index_mbart(text, tokenizer, start_index, num_ops, pmi):
+    token_start = infer_token_location_index_mbart(text, tokenizer, start_index, pmi)
     words = text.split(' ')
     sub_sen = '</s> ' + " ".join(words[:start_index + num_ops + 1])
+    if pmi:
+        sub_sen = sub_sen.replace("♣", " ")
     tok_text = \
         tokenizer(sub_sen, add_special_tokens=True, return_tensors="pt", max_length=128, truncation=True, padding=True)[
             'input_ids'][0]
@@ -385,9 +393,11 @@ def infer_ops_num_and_start_index_mbart(text, tokenizer, start_index, num_ops):
     return token_start, new_ops
 
 
-def infer_token_location_index_xlm(text, tokenizer, index):
+def infer_token_location_index_xlm(text, tokenizer, index, pmi):
     words = text.split(' ')
     sub_sen = " ".join(words[:index + 1])
+    if pmi:
+        sub_sen = sub_sen.replace("♣", " ")
     tok_text = \
         tokenizer(sub_sen, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
                   padding=True)[
@@ -396,10 +406,12 @@ def infer_token_location_index_xlm(text, tokenizer, index):
     return new_start_index
 
 
-def infer_ops_num_and_start_index_xlm(text, tokenizer, start_index, num_ops):
-    token_start = infer_token_location_index_xlm(text, tokenizer, start_index)
+def infer_ops_num_and_start_index_xlm(text, tokenizer, start_index, num_ops, pmi):
+    token_start = infer_token_location_index_xlm(text, tokenizer, start_index, pmi)
     words = text.split(' ')
     sub_sen = " ".join(words[:start_index + num_ops + 1])
+    if pmi:
+        sub_sen = sub_sen.replace("♣", " ")
     tok_text = \
         tokenizer(sub_sen, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
                   padding=True)[
@@ -408,15 +420,33 @@ def infer_ops_num_and_start_index_xlm(text, tokenizer, start_index, num_ops):
     return token_start, new_ops
 
 
+def infer_swap_size(text, tokenizer, start_index, num_ops, pmi):
+    words = text.split(' ')
+    first_word = words[start_index + 1]
+    second_word = words[num_ops + 1]
+    if pmi:
+        first_word = first_word.replace("♣", " ")
+        second_word = second_word.replace("♣", " ")
+    tok_text_first = \
+        tokenizer(first_word, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
+                  padding=True)[
+            'input_ids'][0]
+    tok_text_second = \
+        tokenizer(second_word, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
+                  padding=True)[
+            'input_ids'][0]
+    return len(tok_text_first), len(tok_text_second)
+
+
 def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_token=True, pmi=True):
     if not words_token:
         start_index += 1  # to incorporate beginning token
     if noise_type == 1:
         if words_token:
-            start_index = infer_token_location_index_mbart(text, tokenizer, start_index)
+            start_index = infer_token_location_index_mbart(text, tokenizer, start_index, pmi)
         sen = '</s> ' + text
         if pmi:
-            sen = sen.replace("☘", " ")
+            sen = sen.replace("♣", " ")
         tok_text = \
             tokenizer(sen, add_special_tokens=True, return_tensors="pt", max_length=128, truncation=True,
                       padding=True)[
@@ -427,10 +457,10 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_toke
             dim=0)  # index shifts by 1 bc of </s>
     elif noise_type == 2:
         if words_token:
-            start_index, num_ops = infer_ops_num_and_start_index_mbart(text, tokenizer, start_index, num_ops)
+            start_index, num_ops = infer_ops_num_and_start_index_mbart(text, tokenizer, start_index, num_ops, pmi)
         sen = '</s> ' + text
         if pmi:
-            sen = sen.replace("☘", " ")
+            sen = sen.replace("♣", " ")
         tok_text = \
             tokenizer(sen, add_special_tokens=True, return_tensors="pt", max_length=128, truncation=True, padding=True)[
                 'input_ids']
@@ -438,9 +468,9 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_toke
                                tok_text[0][start_index + 2 + num_ops:]), dim=0)  # index shifts by 1 bc of </s>
     elif noise_type == 3:
         if words_token:
-            start_index = infer_token_location_index_xlm(text, tokenizer, start_index)
+            start_index = infer_token_location_index_xlm(text, tokenizer, start_index, pmi)
         if pmi:
-            text = text.replace("☘", " ")
+            text = text.replace("♣", " ")
         tok_text = \
             tokenizer(text, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
                       padding=True)[
@@ -450,9 +480,9 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_toke
             dim=0)
     elif noise_type == 4:
         if words_token:
-            start_index, num_ops = infer_ops_num_and_start_index_xlm(text, tokenizer, start_index, num_ops)
+            start_index, num_ops = infer_ops_num_and_start_index_xlm(text, tokenizer, start_index, num_ops, pmi)
         if pmi:
-            text = text.replace("☘", " ")
+            text = text.replace("♣", " ")
         tok_text = \
             tokenizer(text, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
                       padding=True)[
@@ -461,25 +491,36 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_toke
                                tok_text[0][start_index + 1 + num_ops:]), dim=0)
     elif noise_type == 5:
         if words_token:
-            start_index = infer_token_location_index_xlm(text, tokenizer, start_index)
-            num_ops = infer_token_location_index_xlm(text, tokenizer, num_ops)
+            first_word_length, second_word_length = infer_swap_size(text, tokenizer, start_index, num_ops, pmi)
+            start_index = infer_token_location_index_xlm(text, tokenizer, start_index, pmi)
+            num_ops = infer_token_location_index_xlm(text, tokenizer, num_ops, pmi)
         end_index = num_ops
         if pmi:
-            text = text.replace("☘", " ")
+            text = text.replace("♣", " ")
         tok_text = \
             tokenizer(text, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
                       padding=True)[
                 'input_ids']
-        input_ids = torch.cat((tok_text[0][:start_index + 1], torch.unsqueeze(tok_text[0][end_index + 1], 0),
-                               tok_text[0][start_index + 2:end_index + 1],
-                               torch.unsqueeze(tok_text[0][start_index + 1], 0), tok_text[0][end_index + 2:]), dim=0)
+        if words_token:
+            input_ids = torch.cat((tok_text[0][:start_index],
+                                   tok_text[0][end_index: end_index + second_word_length],
+                                   tok_text[0][start_index + first_word_length:end_index],
+                                   tok_text[0][start_index:start_index + first_word_length],
+                                   tok_text[0][end_index + second_word_length:]), dim=0)
+
+        else:
+            input_ids = torch.cat((tok_text[0][:start_index + 1],
+                                   torch.unsqueeze(tok_text[0][end_index + 1], 0),
+                                   tok_text[0][start_index + 2:end_index + 1],
+                                   torch.unsqueeze(tok_text[0][start_index + 1], 0),
+                                   tok_text[0][end_index + 2:]), dim=0)
         return tokenizer.decode(input_ids, skip_special_tokens=True)
 
     elif noise_type == 6:
         if words_token:
-            start_index, num_ops = infer_ops_num_and_start_index_xlm(text, tokenizer, start_index, num_ops)
+            start_index, num_ops = infer_ops_num_and_start_index_xlm(text, tokenizer, start_index, num_ops, pmi)
         if pmi:
-            text = text.replace("☘", " ")
+            text = text.replace("♣", " ")
         tok_text = \
             tokenizer(text, add_special_tokens=False, return_tensors="pt", max_length=128, truncation=True,
                       padding=True)[
@@ -489,14 +530,14 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, words_toke
 
     elif noise_type == 7:
         if pmi:
-            text = text.replace("☘", " ")
+            text = text.replace("♣", " ")
         tokens = text.split(" ")
         tokens[start_index] = select_random_synonym(tokens[start_index])
         text = " ".join(tokens)
         return text
     else:
         if pmi:
-            text = text.replace("☘", " ")
+            text = text.replace("♣", " ")
         words = text.split(' ')
         words[start_index] = lemmatize(words[start_index])
         text = ' '.join(words)
@@ -536,7 +577,7 @@ def xlm_roberta_generate(batch_text, model, xlm_tokenizer, device):
 
 
 def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_lam, mask_noise_lam, device,
-                        severity='original', word_tokens=True, pmi=True):
+                        severity='original', word_tokens=True, pmi=False):
     # load in XLM-Roberta model
     # xlm_tokenizer = AutoTokenizer.from_pretrained('xlm-roberta-large')
     # xlm_model = AutoModelForMaskedLM.from_pretrained("xlm-roberta-lbase").to(device)
@@ -548,6 +589,21 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         pretrained_model_name_or_path="facebook/mbart-large-cc25").to(device)
     mbart_tokenizer = MBartTokenizer.from_pretrained("facebook/mbart-large-cc25", src_lang=lang)
     mbart_model.eval()
+
+    import string
+
+    # Storing the sets of punctuation in variable result
+    result = string.punctuation
+    bad = []
+    temp = 'has'
+    for bla in result:
+        shit = xlm_tokenizer(temp + bla, add_special_tokens=True, return_tensors='pt', max_length=128, truncation=True,
+                             padding=True)['input_ids'][0]
+        if len(xlm_tokenizer.decode(shit, skip_special_tokens=True).split(" ")) > 1:
+            bad += bla
+            print(bad)
+    ofek = 5
+
     # initialize cand_dict_arr, sen_noise_dict, id_sen_dict: key->seg_noise id, value->sentence list
     cand_dict_arr = {}
     id_sen_score_dict = {}
@@ -568,7 +624,7 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
                             if gram_txt in pmi_order and flag:
                                 for j in range(k, k + n):
                                     used_indecies[j] = 1
-                                gram_txt_replace = gram_txt.replace(" ", "☘")
+                                gram_txt_replace = gram_txt.replace(" ", "♣")
                                 ref_line = ref_line.replace(gram_txt, gram_txt_replace)
                 words = ref_line.split(' ')
                 tok_xlm_ls = words
@@ -593,8 +649,7 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
     mnli_model.eval()
     mnli_tokenizer = AutoTokenizer.from_pretrained("roberta-large-mnli")
     m = nn.Softmax(dim=1)
-
-    batch_size_gen = 16
+    batch_size_gen = 8
     batch_size_xlm = 128
     batch_size_mnli = 128
     print("Max Step: ", max_step)
@@ -607,26 +662,41 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         mbart_ls, xlm_ls, swap_ls, delete_ls, synonym_ls, lemmatization_ls = [], [], [], [], [], []
         # construct mbart add dataset
         for id, start_index in zip(mbart_add_seg_id_ls, mbart_add_start_ls):
-            mbart_ls.append(data_construct(id_sen_dict[id]['text'][-1], 1, mbart_tokenizer, start_index, 0,pmi=pmi))
+            mbart_ls.append(
+                data_construct(id_sen_dict[id]['text'][-1], 1, mbart_tokenizer, start_index, 0, words_token=word_tokens,
+                               pmi=pmi))
         # construct mbart replace dataset
         for id, start_index, replace_len in zip(mbart_replace_seg_id_ls, mbart_replace_start_ls, mbart_replace_len_ls):
-            mbart_ls.append(data_construct(id_sen_dict[id]['text'][-1], 2, mbart_tokenizer, start_index, replace_len))
+            mbart_ls.append(data_construct(id_sen_dict[id]['text'][-1], 2, mbart_tokenizer, start_index, replace_len,
+                                           words_token=word_tokens, pmi=pmi))
         # construct xlm add daatset
         for id, start_index in zip(xlm_add_seg_id_ls, xlm_add_start_ls):
-            xlm_ls.append(data_construct(id_sen_dict[id]['text'][-1], 3, xlm_tokenizer, start_index, 0,pmi=pmi))
+            xlm_ls.append(
+                data_construct(id_sen_dict[id]['text'][-1], 3, xlm_tokenizer, start_index, 0, words_token=word_tokens,
+                               pmi=pmi))
         # construct xlm replace dataset
         for id, start_index in zip(xlm_replace_seg_id_ls, xlm_replace_start_ls):
-            xlm_ls.append(data_construct(id_sen_dict[id]['text'][-1], 4, xlm_tokenizer, start_index, 1,pmi=pmi))
+            xlm_ls.append(
+                data_construct(id_sen_dict[id]['text'][-1], 4, xlm_tokenizer, start_index, 1, words_token=word_tokens,
+                               pmi=pmi))
         # construct swap dataset
         for id, start_index, end_index in zip(swap_seg_id_ls, swap_start_ls, swap_end_ls):
-            swap_ls.append(data_construct(id_sen_dict[id]['text'][-1], 5, xlm_tokenizer, start_index, end_index,pmi=pmi))
+            swap_ls.append(
+                data_construct(id_sen_dict[id]['text'][-1], 5, xlm_tokenizer, start_index, end_index,
+                               words_token=word_tokens, pmi=pmi))
         # construct del dataset
         for id, start_index, del_len in zip(del_seg_id_ls, del_start_ls, del_len_ls):
-            delete_ls.append(data_construct(id_sen_dict[id]['text'][-1], 6, xlm_tokenizer, start_index, del_len,pmi=pmi))
+            delete_ls.append(
+                data_construct(id_sen_dict[id]['text'][-1], 6, xlm_tokenizer, start_index, del_len,
+                               words_token=word_tokens, pmi=pmi))
         for id, start_index in zip(xlm_synonym_seg_id_ls, xlm_synonym_start_ls):
-            synonym_ls.append(data_construct(id_sen_dict[id]['text'][-1], 7, xlm_tokenizer, start_index, 0,pmi=pmi))
+            synonym_ls.append(
+                data_construct(id_sen_dict[id]['text'][-1], 7, xlm_tokenizer, start_index, 0, words_token=word_tokens,
+                               pmi=pmi))
         for id, start_index in zip(xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls):
-            lemmatization_ls.append(data_construct(id_sen_dict[id]['text'][-1], 8, xlm_tokenizer, start_index, 0,pmi=pmi))
+            lemmatization_ls.append(
+                data_construct(id_sen_dict[id]['text'][-1], 8, xlm_tokenizer, start_index, 0, words_token=word_tokens,
+                               pmi=pmi))
         print("All <mask>/non <mask> datasets are constructed for generation")
         # sentence seg id with corresponding generated texts
         new_seg_ids, new_step_ls, step_score_ls = [], [], []
@@ -702,11 +772,10 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
 @click.command()
 @click.option('-num_var')
 @click.option('-lang')
-@click.option('-src')
 @click.option('-ref')
 @click.option('-save')
 @click.option('-severity')
-def main(num_var, lang, src, ref, save, severity, words_token=True, pmi=True):
+def main(num_var, lang, ref, save, severity, words_token=True, pmi=True):
     """num_var: specifies number of different variants we create for each segment, lang: language code for model,
     src: source folder, ref: reference folder, save: file to save all the generated noises"""
     # load into reference file
@@ -717,34 +786,34 @@ def main(num_var, lang, src, ref, save, severity, words_token=True, pmi=True):
     save_name = save + f'_num_{noise_planner_num}_del_{del_noise_lam}_mask_{mask_noise_lam}_xlm_mbart.csv'
     csvfile = open(save_name, 'w')
     csvwriter = csv.writer(csvfile)
-    #fields = ['src', 'mt', 'ref', 'score']
+    # fields = ['src', 'mt', 'ref', 'score']
     fields = ['mt', 'ref', 'score']
     csvwriter.writerow(fields)
 
     segFile = open(f"{save}_zhen_num_{noise_planner_num}_del_{del_noise_lam}_mask_{mask_noise_lam}_xlm_mbart.tsv", 'wt')
     tsv_writer = csv.writer(segFile, delimiter='\t')
 
-    #for src_file, ref_file in zip(sorted(list(glob.glob(src + '/*'))), sorted(list(glob.glob(ref + '/*')))):
+    # for src_file, ref_file in zip(sorted(list(glob.glob(src + '/*'))), sorted(list(glob.glob(ref + '/*')))):
 
-    ref_file = 'case_study_ref/wmt_train.txt'
-    ref_lines = open(ref_file, 'r').readlines()
+    # ref_file = 'case_study_ref/wmt_train.txt'
+    ref_lines = open(ref, 'r').readlines()
     # src_lines = open(src_file, 'r').readlines()
     ref_lines = [" ".join(line[:-1].split()) for line in ref_lines]
-    #src_lines = [" ".join(line[:-1].split()) for line in src_lines]
+    # src_lines = [" ".join(line[:-1].split()) for line in src_lines]
 
     print("Text Preprocessed to remove newline and Seed: 12")
 
     start = time.time()
     id_sen_dict, id_sen_score_dict = text_score_generate(int(num_var), lang, ref_lines, noise_planner_num,
                                                          del_noise_lam, mask_noise_lam, device, severity,
-                                                         words_token,pmi=pmi)
+                                                         words_token, pmi=pmi)
     print("Total generated sentences for one subfile: ", len(id_sen_dict))
 
     for key, value in id_sen_dict.items():
         seg_id = int(key.split('_')[0])
         noise_sen, score = value['text'][-1], value['score']  # the last processed noise sentence
-        #csvwriter.writerow([src_lines[seg_id], noise_sen, ref_lines[seg_id], score])
-        csvwriter.writerow([ noise_sen, ref_lines[seg_id], score])
+        # csvwriter.writerow([src_lines[seg_id], noise_sen, ref_lines[seg_id], score])
+        csvwriter.writerow([noise_sen, ref_lines[seg_id], score])
 
     for _, values in id_sen_score_dict.items():
         tsv_writer.writerow(values)
