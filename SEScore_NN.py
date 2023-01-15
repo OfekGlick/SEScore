@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from comet.models.regression.referenceless import ReferencelessRegression
 
 from typing import Dict
@@ -9,6 +10,7 @@ from comet.encoders.bert import BERTEncoder
 from transformers import AutoModel, AutoTokenizer
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader
+import argparse
 
 
 class robertaEncoder(BERTEncoder):
@@ -92,7 +94,10 @@ def tokenize_and_pad(batch):
 
 
 def load_dataset(path):
-    pass
+    data = pd.read_csv(path)
+    return CustomDataset(references=data['ref'].to_list(),
+                         predictions=data['mt'].to_list(),
+                         scores=data['score'].to_list())
 
 
 def parser_args():
@@ -154,3 +159,7 @@ def train():
             test_real_scores = torch.stack(test_real_scores, dim=0)
             test_mse = loss_function(test_predictions, test_real_scores)
         print(f"For epoch {epoch} the average train loss {np.mean(train_losses)} | the test loss {test_mse}")
+
+
+if __name__ == "__main__":
+    train()
