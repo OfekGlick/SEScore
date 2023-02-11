@@ -19,4 +19,4 @@ def preprocess_wmt_data(train_save_path,test_save_path,test_size=0.2,random_stat
     csvwriter.writerow(['mt', 'ref', 'score'])
     for _,row in testset.iterrows():
         csvwriter.writerow(row)
-preprocess_wmt_data('case_study_ref/wmt_train.txt','wmt_test.csv')
+#preprocess_wmt_data('case_study_ref/wmt_train.txt','wmt_test.csv')
