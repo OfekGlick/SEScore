@@ -11,6 +11,8 @@ from transformers import AutoModel, AutoTokenizer
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader
 import argparse
+from tqdm import tqdm
+from scipy.stats import pearsonr, kendalltau
 
 
 class robertaEncoder(BERTEncoder):
@@ -93,6 +95,14 @@ def tokenize_and_pad(batch):
     return references_input_ids, references_attention_masks, predictions_input_ids, predictions_attention_masks, scores
 
 
+def correlation(pred, real):
+    p = pearsonr(pred, real)[0]
+    x = np.argsort(pred)
+    y = np.argsort(real)
+    k = kendalltau(x, y)[0]
+    return p, k
+
+
 def load_dataset(path):
     data = pd.read_csv(path)
     return CustomDataset(references=data['ref'].to_list(),
@@ -104,12 +114,13 @@ def parser_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-lr', default=1e-3)
     parser.add_argument('-batch_size', default=16)
-    parser.add_argument('-epochs', default=1)
+    parser.add_argument('-epochs', default=1,type=int)
     parser.add_argument('-drop_out', default=0.15)
     parser.add_argument('-beta_1', default=0.9)
     parser.add_argument('-beta_2', default=0.99)
     parser.add_argument('-train_path', default=None)
     parser.add_argument('-test_path', default=None)
+    parser.add_argument('-save_dir',default=None)
     args = parser.parse_args()
     return args
 
@@ -124,7 +135,9 @@ def train():
     train_path = args.train_path
     test_path = args.test_path
     drop_out = args.drop_out
-    score_function = OurSEScore(drop_out=drop_out)
+    save_dir= args.save_dir
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    score_function = OurSEScore(drop_out=drop_out).to(device)
     loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(score_function.parameters(), lr=lr, betas=(beta_1, beta_2))
     train_dataset = load_dataset(train_path)
@@ -134,12 +147,12 @@ def train():
     for epoch in range(epochs):
         score_function.train()
         train_losses = []
-        for batch in train_dataloader:
+        for batch in tqdm(train_dataloader):
             references_input_ids, references_attention_masks, predictions_input_ids, predictions_attention_masks, scores = batch
-            predicted_scores = score_function.forward(references_input_ids, references_attention_masks,
-                                                      predictions_input_ids, predictions_attention_masks)[
+            predicted_scores = score_function.forward(references_input_ids.to(device), references_attention_masks.to(device),
+                                                      predictions_input_ids.to(device), predictions_attention_masks.to(device))[
                 'score'].squeeze()
-            loss = loss_function(predicted_scores, scores)
+            loss = loss_function(predicted_scores, scores.to(device))
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
@@ -148,18 +161,28 @@ def train():
         with torch.no_grad():
             test_predictions = []
             test_real_scores = []
-            for batch in test_dataloader:
+            for batch in tqdm(test_dataloader):
                 references_input_ids, references_attention_masks, predictions_input_ids, predictions_attention_masks, scores = batch
-                predicted_scores = score_function.forward(references_input_ids, references_attention_masks,
-                                                          predictions_input_ids, predictions_attention_masks)[
+                predicted_scores = score_function.forward(references_input_ids.to(device), references_attention_masks.to(device),
+                                                          predictions_input_ids.to(device), predictions_attention_masks.to(device))[
                     'score'].squeeze()
-                test_predictions.append(predicted_scores)
+                test_predictions.append(predicted_scores.detach().cpu())
                 test_real_scores.append(scores)
             test_predictions = torch.stack(test_predictions, dim=0)
-            test_real_scores = torch.stack(test_real_scores, dim=0)
+            test_real_scores = torch.stack(test_real_scores, dim=0).squeeze()
             test_mse = loss_function(test_predictions, test_real_scores)
-        print(f"For epoch {epoch} the average train loss {np.mean(train_losses)} | the test loss {test_mse}")
-
+            pearson_correlation, kendell_tau_correlation = correlation(test_predictions, test_real_scores)
+        print(
+            f"For epoch {epoch} the average train loss {np.mean(train_losses)} | the test loss {test_mse} |"
+            f" test pearson correlation {pearson_correlation:.4f} | test kendell tau correlation {kendell_tau_correlation:.4f}")
+        with open(save_dir+'/results.txt','a') as f:
+            f.write(f"For epoch {epoch}\n")
+            f.write(f"Average train loss {np.mean(train_losses):.4f}\n")
+            f.write(f"Test loss {test_mse:.4f}\n")
+            f.write(f"Test pearson correlation {pearson_correlation:.4f}\n")
+            f.write(f"Test kendell tau correlation {kendell_tau_correlation:.4f}\n")
+            f.write('\n')
+        torch.save(score_function.state_dict(), save_dir +f'/model_weights_epoch_{epoch}.pkl')
 
 if __name__ == "__main__":
     train()
