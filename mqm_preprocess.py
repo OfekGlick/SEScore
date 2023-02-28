@@ -51,21 +51,26 @@ def preprocess_wmt_data(train_save_path,test_save_path,test_size=0.2,random_stat
     csvwriter.writerow(['mt', 'ref', 'score'])
     for _,row in testset.iterrows():
         csvwriter.writerow(row)
-def small_test(test_size=0.2,random_state = 42):
+def small_test(train_save_path,test_save_path,test_size=0.2,random_state = 42,train_lines = 6000):
     path_1 = "WMT/wmt-zhen-newstest2020.csv"
     path_2 = "WMT/wmt-zhen-newstest2021.csv"
     df1 = pd.read_csv(path_1)
     df2 = pd.read_csv(path_2)
     df = pd.concat((df1, df2))
     df = df[['mt', 'ref', 'score']].drop_duplicates().dropna().reset_index(drop=True)
-    df = fix_to_ascii(df)
+    df,_,_ = fix_to_ascii(df)
     trainset, testset = train_test_split(df, test_size=test_size,random_state=random_state)
-    small_test = pd.concat((trainset.iloc[6001:],testset))
-    csvwriter = csv.writer(open('small_test_set.csv','w'))
+    sentences_to_corrupt = trainset[['ref']][:train_lines]
+    with open(train_save_path, 'w') as f:
+        for index,line in sentences_to_corrupt.iterrows():
+            f.write(f"{line[0]}\n")
+    small_test = pd.concat((trainset.iloc[train_lines:],testset))
+    small_test = small_test[['mt', 'ref', 'score']]
+    csvwriter = csv.writer(open(test_save_path,'w'))
     csvwriter.writerow(['mt', 'ref', 'score'])
     for _,row in small_test.iterrows():
         csvwriter.writerow(row)
 
-#preprocess_wmt_data('case_study_ref/wmt_train_fixed.txt','test/wmt_test_fixed.csv')
-#preprocess_wmt_data('case_study_ref/wmt_train.txt','wmt_test.csv')
-#small_test()
+# preprocess_wmt_data('case_study_ref/wmt_train_fixed.txt','test/wmt_test_fixed.csv')
+# preprocess_wmt_data('case_study_ref/wmt_train.txt','wmt_test.csv')
+# small_test('case_study_ref/wmt_train_small_fixed.txt','test/wmt_test_small_fixed.csv')

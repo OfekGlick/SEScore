@@ -357,7 +357,7 @@ def severity_measure_with_positive_correction(mnli_model, mnli_tokenizer, m, pre
     # p_not_severe = softmax_result_1/(1-softmax_result_1) * softmax_result_2/(1-softmax_result_2)
     scores = []
 
-    for i, prob_1, prob_2, pi_10, p0i_1, pi0, p0i in enumerate(
+    for i, (prob_1, prob_2, pi_10, p0i_1, pi0, p0i) in enumerate(
             zip(softmax_result_1, softmax_result_2, softmax_result_org_prev_1,
                 softmax_result_org_prev_2, softmax_result_org_curr_1,
                 softmax_result_org_curr_2)):
@@ -374,7 +374,7 @@ def severity_measure_with_positive_correction(mnli_model, mnli_tokenizer, m, pre
     return scores
 
 
-def severity_measure_with_continuous_scoring(mnli_model, mnli_tokenizer, m, prev_batch, cur_batch, device, n,
+def severity_measure_with_continuous_scoring_geometric_mean(mnli_model, mnli_tokenizer, m, prev_batch, cur_batch, device, n,
                                              analysis_logger):
     with torch.no_grad():
         inputs_1 = mnli_tokenizer(prev_batch, cur_batch, return_tensors="pt", max_length=256, truncation=True,
@@ -391,8 +391,9 @@ def severity_measure_with_continuous_scoring(mnli_model, mnli_tokenizer, m, prev
     # p_not_severe = softmax_result_1/(1-softmax_result_1) * softmax_result_2/(1-softmax_result_2)
     scores = []
 
-    for i, prob_1, prob_2 in enumerate(zip(softmax_result_1, softmax_result_2)):
-        score = -(1 - (((prob_1 / (1 / prob_1)) * prob_2 / (1 / prob_2)).item()) ** n)
+    for i, (prob_1, prob_2) in enumerate(zip(softmax_result_1, softmax_result_2)):
+        bde = (prob_1.item()*prob_2.item())**0.5
+        score = bde**n - 1
         if analysis_logger is not None:
             analysis_logger.write(f"The continuous score was {score} \n")
             analysis_logger.write(prev_batch[i] + '\n')
@@ -401,6 +402,33 @@ def severity_measure_with_continuous_scoring(mnli_model, mnli_tokenizer, m, prev
         scores.append(score)
     return scores
 
+def severity_measure_with_continuous_scoring_arithmetic_mean(mnli_model, mnli_tokenizer, m, prev_batch, cur_batch, device, n,
+                                             analysis_logger):
+    with torch.no_grad():
+        inputs_1 = mnli_tokenizer(prev_batch, cur_batch, return_tensors="pt", max_length=256, truncation=True,
+                                  padding=True).to(device)
+        output_1 = mnli_model(**inputs_1).logits  # 0: contradiction, 1: neutral, 2: entailment
+        softmax_result_1 = m(output_1)[:, -1]
+
+        inputs_2 = mnli_tokenizer(cur_batch, prev_batch, return_tensors="pt", max_length=256, truncation=True,
+                                  padding=True).to(device)
+        output_2 = mnli_model(**inputs_2).logits  # 0: contradiction, 1: neutral, 2: entailment
+        softmax_result_2 = m(output_2)[:, -1]
+
+    # Use the harmonic mean for threshold, threshold = 0.9
+    # p_not_severe = softmax_result_1/(1-softmax_result_1) * softmax_result_2/(1-softmax_result_2)
+    scores = []
+
+    for i, (prob_1, prob_2) in enumerate(zip(softmax_result_1, softmax_result_2)):
+        bde = (prob_1.item() + prob_2.item())/2
+        score = bde**n - 1
+        if analysis_logger is not None:
+            analysis_logger.write(f"The continuous score was {score} \n")
+            analysis_logger.write(prev_batch[i] + '\n')
+            analysis_logger.write(cur_batch[i] + '\n')
+            analysis_logger.flush()
+        scores.append(score)
+    return scores
 
 # The reason we work this way (include the word in this calculation) is because we want all the word
 # tokens to be included.Then we remove 1 in order to work with the code.
@@ -709,12 +737,12 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
     use_new_operators = args.use_new_operators
     analysis_logger = None
     if args.analysis_mode:
-        analysis_save_dir = "/".join(args.analysis_save_path.split('/')[:-1])
-        if not os.path.exists(analysis_save_dir):
-            os.mkdir(analysis_save_dir)
+        analysis_save_dir_run = args.analysis_save_dir +'/'+ args.save_name_start +'_operators'
+        if not os.path.exists(analysis_save_dir_run):
+            os.mkdir(analysis_save_dir_run)
         else:
             raise Exception("Error in analysis save path, it already exists")
-        analysis_logger = open(args.analysis_save_path, 'w')
+        analysis_logger = open(analysis_save_dir_run+'/analysis.txt', 'w')
     xlm_tokenizer = AutoTokenizer.from_pretrained('xlm-roberta-large')
     xlm_model = AutoModelForMaskedLM.from_pretrained('xlm-roberta-large')
     xlm_model.eval()
@@ -782,10 +810,6 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
             id_sen_dict, step, sen_noise_dict, cand_dict_arr, del_noise_lam, mask_noise_lam, word_tokens=word_tokens,
             use_new_operators=use_new_operators)
         # produce the text for generate functions
-        import pickle
-        step_noise_dict_path = dir_path + f'/step_{step}.pickle'
-        with open(step_noise_dict_path, 'wb') as f:
-            pickle.dump(step_noise_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
         mbart_ls, xlm_ls, swap_ls, delete_ls, synonym_ls, lemmatization_ls = [], [], [], [], [], []
         # construct mbart add dataset
         start_time = time.time()
@@ -948,10 +972,16 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
                                                                            ref_lines, idx_batch, lam=args.lam,
                                                                            analysis_logger=analysis_logger)
 
-            elif severity == "continuous_scoring":
-                temp_scores_ls = severity_measure_with_continuous_scoring(mnli_model, mnli_tokenizer, m, prev_batch,
+            elif severity == "continuous_scoring_geometric_mean":
+                temp_scores_ls = severity_measure_with_continuous_scoring_geometric_mean(mnli_model, mnli_tokenizer, m, prev_batch,
                                                                           cur_batch, device, n=args.n,
                                                                           analysis_logger=analysis_logger)
+            elif severity == "continuous_scoring_arithmetic_mean":
+                temp_scores_ls = severity_measure_with_continuous_scoring_arithmetic_mean(mnli_model, mnli_tokenizer, m, prev_batch,
+                                                                          cur_batch, device, n=args.n,
+                                                                          analysis_logger=analysis_logger)
+            elif severity == "constant_score":
+                temp_scores_ls = np.ones(len(prev_batch)) * -5
             else:
                 raise ValueError("Severity scoring not recognized!")
             step_score_ls.extend(temp_scores_ls)
@@ -969,10 +999,9 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
                 id_sen_dict[id]['text'].append(new_sen)
                 id_sen_dict[id]['score'] += score
                 id_sen_score_dict[id].append(new_sen + f" [Score: {score}, Info: {step_noise_dict[id]}]")
-            # else:
-            #     print(id_sen_dict[id]['text'])
-            #     print(new_sen)
-
+            else:
+                print(id_sen_dict[id]['text'])
+                print(new_sen)
         print("Finish one step")
 
     return id_sen_dict, id_sen_score_dict
@@ -1000,7 +1029,8 @@ def parser_args():
     args.add_argument('-logger', default="log.txt", type=str)
     args.add_argument('-lam', default=1, type=int)
     args.add_argument('-analysis_mode', default=False, action='store_true')
-    args.add_argument('-analysis_save_path', default=None, type=str)
+    args.add_argument('-analysis_save_name', default=None, type=str)
+    args.add_argument('-analysis_save_dir',default="analysis_data")
     args.add_argument('-n', default=6.5788, type=float)
     return args.parse_args()
 
@@ -1012,6 +1042,7 @@ def main(args):
     num_var = args.num_var
     lang = args.lang
     ref = args.ref
+    print(ref)
     save_name_start = args.save_name_start
     save_dir = args.save_dir
     seed = args.seed
@@ -1063,10 +1094,15 @@ def main(args):
     try:
         id_sen_dict, id_sen_score_dict = text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_lam,
                                                              mask_noise_lam, device, args, log_file, dir_path)
+        import pickle
+        step_noise_dict_path = dir_path + f'/sentences_dict.pickle'
+        with open(step_noise_dict_path, 'wb') as f:
+            pickle.dump(id_sen_score_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
 
         if log_file is not None:
             log_file.write(f"Total generated sentences for one subfile: {len(id_sen_dict)}\n")
             log_file.flush()
+
         print("Total generated sentences for one subfile: ", len(id_sen_dict))
 
         for key, value in id_sen_dict.items():
