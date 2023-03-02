@@ -14,6 +14,23 @@ import argparse
 from tqdm import tqdm
 from scipy.stats import pearsonr, kendalltau
 from transformers import XLMRobertaModel, XLMRobertaTokenizer
+def adjust_punctuation(sen_list):
+    new_list = []
+    for sen in sen_list:
+        new_sen = []
+        for i, char in enumerate(sen):
+            if char.isalnum() or (char == "'" and  i+1 != len(sen) and i !=0 and sen[i - 1].isalnum() and sen[i + 1].isalnum()):
+                new_sen.append(char)
+            elif char in [',', '.']:
+                while i > 0 and new_sen[-1] == ' ':
+                    new_sen.pop(-1)
+                new_sen.append(char)
+            else:
+                new_sen.append(' ')
+        new_sen = ''.join(new_sen)
+        new_list.append(" ".join(new_sen.split()))
+    return new_list
+
 class robertaEncoder(BERTEncoder):
     def __init__(self, pretrained_model: str) -> None:
         super(Encoder, self).__init__()
@@ -104,8 +121,8 @@ def correlation(pred, real):
 
 def load_dataset(path):
     data = pd.read_csv(path)
-    return CustomDataset(references=data['ref'].to_list(),
-                         predictions=data['mt'].to_list(),
+    return CustomDataset(references=adjust_punctuation(data['ref'].to_list()),
+                         predictions=adjust_punctuation(data['mt'].to_list()),
                          scores=data['score'].to_list())
 
 
@@ -185,10 +202,8 @@ def train():
             f.write(f"Test pearson correlation {pearson_correlation:.4f}\n")
             f.write(f"Test kendell tau correlation {kendell_tau_correlation:.4f}\n")
             f.write('\n')
-        torch.save(score_function.state_dict(), save_dir + f'/model_weights_epoch_{epoch}.pkl')
+        #torch.save(score_function.state_dict(), save_dir + f'/model_weights_epoch_{epoch}.pkl')
 
 
 if __name__ == "__main__":
-    import os
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     train()

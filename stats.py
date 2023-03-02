@@ -133,5 +133,64 @@ def extract_continuous_score_distribution(eps = 0.1):
     plt.hist(scores_eps_from_borders,bins=10,range=(0,1),weights= np.ones_like(scores) / len(scores))
     plt.show()
 
+def create_results_ranking(source_dir = 'ablation_study_results',rankby = 'Pearson'):
+    dirs_names = [x for x in os.walk(source_dir)][1:]
+    all_results = {}
+    for dir in dirs_names:
+        for file in os.listdir(dir[0]):
+            if file.endswith(".txt"):
+                with open(os.path.join(dir[0], file), 'r') as f:
+                    x = f.readlines()
+                    res = {}
+                    for i, line in enumerate(x):
+                        if i == 0:
+                            continue
+                        elif i == 1:
+                            res['avg_train_loss'] = float(line.split()[3])
+                        elif i == 2:
+                            res['avg_test_loss'] = float(line.split()[2])
+                        elif i == 3:
+                            res['pearson'] = float(line.split()[3])
+                        elif i == 4:
+                            res['kendell_tau'] = float(line.split()[4])
+                    all_results[dir[0].split('/')[1]] = res
+    df = pd.DataFrame(columns=["Tokenization","Severity","Used new operators",'Pearson',"Kendell tau","n","lam"])
+    counter = 0
+    for key, res in all_results.items():
+        n = None
+        lam = None
+        point = (res['pearson'], res['kendell_tau'])
+        plt.scatter(point[0], point[1])
+        if "baseline" in key:
+            Tokenization = "Baseline"
+        elif "pmi" in key:
+            Tokenization = "Pmi"
+        else:
+            Tokenization = "Word tokens"
+        if "mean" in key:
+            n = float(key.split('_')[-1])
+            if "geometric" in key:
+                severity = "Continuous scoring geometric mean"
+            else:
+                severity = "Continuous scoring arithmetic mean"
+        elif "correction" in key:
+            lam = int(key[-1])
+            severity = "Positive correction"
+        else:
+            severity = "Original"
+        if "with_new_operators" in key:
+            new_operators = "+"
+        else:
+            new_operators = "-"
+        df.loc[counter] = [Tokenization,severity,new_operators,point[0],point[1],n,lam]
+        counter += 1
+    print(df.sort_values(rankby,ascending=False).to_markdown(index=False))
+    plt.xlabel('pearson')
+    plt.ylabel('kendell_tau')
+    plt.show()
+    print(len(df))
+
+
 if __name__ == "__main__":
-    pmi_analysis()
+    #pmi_analysis()
+    create_results_ranking()
