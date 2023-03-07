@@ -601,11 +601,16 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, word_token
                                    tok_text[0][end_index + second_word_length:]), dim=0)
 
         else:
-            input_ids = torch.cat((tok_text[0][:start_index + 1],
-                                   torch.unsqueeze(tok_text[0][end_index + 1], 0),
-                                   tok_text[0][start_index + 2:end_index + 1],
-                                   torch.unsqueeze(tok_text[0][start_index + 1], 0),
-                                   tok_text[0][end_index + 2:]), dim=0)
+            # input_ids = torch.cat((tok_text[0][:start_index + 1],
+            #                        torch.unsqueeze(tok_text[0][end_index + 1], 0),
+            #                        tok_text[0][start_index + 2:end_index + 1],
+            #                        torch.unsqueeze(tok_text[0][start_index + 1], 0),
+            #                        tok_text[0][end_index + 2:]), dim=0)
+            input_ids = torch.cat((tok_text[0][:start_index],
+                                   torch.unsqueeze(tok_text[0][end_index], 0),
+                                   tok_text[0][start_index + 1:end_index],
+                                   torch.unsqueeze(tok_text[0][start_index], 0),
+                                   tok_text[0][end_index + 1:]), dim=0)
         if word_tokens:
             new_text = tokenizer.decode(input_ids, skip_special_tokens=True)
             return adjust_punctuation([new_text])[0]
@@ -728,283 +733,293 @@ def xlm_roberta_generate(batch_text, model, xlm_tokenizer, device, word_tokens):
 def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_lam, mask_noise_lam, device, args,
                         log_file, dir_path):
     # load in XLM-Roberta model
-    severity = args.severity
-    word_tokens = args.word_tokens
-    pmi = args.pmi
-    mnli_batch_size = args.mnli_batch_size
-    mbart_batch_size = args.mbart_batch_size
-    xlm_batch_size = args.xlm_batch_size
-    use_new_operators = args.use_new_operators
-    analysis_logger = None
-    if args.analysis_mode:
-        analysis_save_dir_run = args.analysis_save_dir +'/'+ args.save_name_start +'_operators'
-        if not os.path.exists(analysis_save_dir_run):
-            os.mkdir(analysis_save_dir_run)
-        else:
-            raise Exception("Error in analysis save path, it already exists")
-        analysis_logger = open(analysis_save_dir_run+'/analysis.txt', 'w')
-    xlm_tokenizer = AutoTokenizer.from_pretrained('xlm-roberta-large')
-    xlm_model = AutoModelForMaskedLM.from_pretrained('xlm-roberta-large')
-    xlm_model.eval()
-    # load in MBart model and its tokenzier
-    mbart_model = MBartForConditionalGeneration.from_pretrained(
-        pretrained_model_name_or_path="facebook/mbart-large-cc25")
-    mbart_tokenizer = MBartTokenizer.from_pretrained("facebook/mbart-large-cc25", src_lang=lang)
-    mbart_model.eval()
-    # initialize cand_dict_arr, sen_noise_dict, id_sen_dict: key->seg_noise id, value->sentence list
-    cand_dict_arr = {}
     id_sen_score_dict = {}
-    id_sen_dict = {}  # id_sen_dict is a dict containing "score" and "text" fields, "text" field is a list which contains a history of all generated sentences
-    pmi_order = parse_pmi(False)
-    for line_index, ref_line in tqdm(enumerate(ref_lines)):
-        for i in range(num_var):
-            id = str(line_index) + '_' + str(i)
-            if word_tokens:
-                words = ref_line.split()
-                if pmi:
-                    used_indecies = [0 for _ in range(len(words))]
-                    for n in range(4, 1, -1):
-                        ngrams_lst = ngrams(ref_line.split(), n)
-                        for k, gram in enumerate(ngrams_lst):
-                            gram_txt = " ".join(gram)
-                            flag = not any([used_indecies[j] for j in range(k, k + n)])
-                            if gram_txt in pmi_order and flag:
-                                for j in range(k, k + n):
-                                    used_indecies[j] = 1
-                                gram_txt_replace = gram_txt.replace(" ", "♣")
-                                ref_line = ref_line.replace(gram_txt, gram_txt_replace)
-                words = ref_line.split()
-                tok_xlm_ls = words
-                tok_mbart_ls = words
+    step_noise_dict = {}
+    try:
+        severity = args.severity
+        word_tokens = args.word_tokens
+        pmi = args.pmi
+        mnli_batch_size = args.mnli_batch_size
+        mbart_batch_size = args.mbart_batch_size
+        xlm_batch_size = args.xlm_batch_size
+        use_new_operators = args.use_new_operators
+        analysis_logger = None
+        if args.analysis_mode:
+            analysis_save_dir_run = args.analysis_save_dir +'/'+ args.save_name_start +'_operators'
+            if not os.path.exists(analysis_save_dir_run):
+                os.mkdir(analysis_save_dir_run)
             else:
-                tok_xlm_ls = xlm_tokenizer.tokenize(ref_line)
-                tok_mbart_ls = mbart_tokenizer.tokenize(ref_line)
-            # initialize pretraining scheduling scheme using tokenized word lists
-            cand_dict_arr[id] = {}
-            cand_dict_arr[id]['xlm'] = min(len(tok_xlm_ls), 126) - 1 - np.array(range(min(len(tok_xlm_ls), 126)))
-            cand_dict_arr[id]['mbart'] = min(len(tok_mbart_ls), 125) - 1 - np.array(range(min(len(tok_mbart_ls), 125)))
-            id_sen_dict[id] = {}
-            id_sen_dict[id]['score'] = 0
-            id_sen_dict[id]['text'] = [ref_line]
-            id_sen_score_dict[id] = [ref_line + " [Score: 0]"]
-    # determine each sentence with specified number of noises
-    sen_noise_dict, max_step = noise_planner(num_var, len(ref_lines), noise_planner_num)
+                raise Exception("Error in analysis save path, it already exists")
+            analysis_logger = open(analysis_save_dir_run+'/analysis.txt', 'w')
+        xlm_tokenizer = AutoTokenizer.from_pretrained('xlm-roberta-large')
+        xlm_model = AutoModelForMaskedLM.from_pretrained('xlm-roberta-large')
+        xlm_model.eval()
+        # load in MBart model and its tokenzier
+        mbart_model = MBartForConditionalGeneration.from_pretrained(
+            pretrained_model_name_or_path="facebook/mbart-large-cc25")
+        mbart_tokenizer = MBartTokenizer.from_pretrained("facebook/mbart-large-cc25", src_lang=lang)
+        mbart_model.eval()
+        # initialize cand_dict_arr, sen_noise_dict, id_sen_dict: key->seg_noise id, value->sentence list
+        cand_dict_arr = {}
+        id_sen_dict = {}  # id_sen_dict is a dict containing "score" and "text" fields, "text" field is a list which contains a history of all generated sentences
+        pmi_order = parse_pmi(False)
+        for line_index, ref_line in tqdm(enumerate(ref_lines)):
+            for i in range(num_var):
+                id = str(line_index) + '_' + str(i)
+                if word_tokens:
+                    words = ref_line.split()
+                    if pmi:
+                        used_indecies = [0 for _ in range(len(words))]
+                        for n in range(4, 1, -1):
+                            ngrams_lst = ngrams(ref_line.split(), n)
+                            for k, gram in enumerate(ngrams_lst):
+                                gram_txt = " ".join(gram)
+                                flag = not any([used_indecies[j] for j in range(k, k + n)])
+                                if gram_txt in pmi_order and flag:
+                                    for j in range(k, k + n):
+                                        used_indecies[j] = 1
+                                    gram_txt_replace = gram_txt.replace(" ", "♣")
+                                    ref_line = ref_line.replace(gram_txt, gram_txt_replace)
+                    words = ref_line.split()
+                    tok_xlm_ls = words
+                    tok_mbart_ls = words
+                else:
+                    tok_xlm_ls = xlm_tokenizer.tokenize(ref_line)
+                    tok_mbart_ls = mbart_tokenizer.tokenize(ref_line)
+                # initialize pretraining scheduling scheme using tokenized word lists
+                cand_dict_arr[id] = {}
+                cand_dict_arr[id]['xlm'] = min(len(tok_xlm_ls), 126) - 1 - np.array(range(min(len(tok_xlm_ls), 126)))
+                cand_dict_arr[id]['mbart'] = min(len(tok_mbart_ls), 125) - 1 - np.array(range(min(len(tok_mbart_ls), 125)))
+                id_sen_dict[id] = {}
+                id_sen_dict[id]['score'] = 0
+                id_sen_dict[id]['text'] = [ref_line]
+                id_sen_score_dict[id] = [ref_line + " [Score: 0]"]
+        # determine each sentence with specified number of noises
+        sen_noise_dict, max_step = noise_planner(num_var, len(ref_lines), noise_planner_num)
 
-    # load in mnli model for severity measures
-    mnli_model = AutoModelForSequenceClassification.from_pretrained("roberta-large-mnli")
-    mnli_model.eval()
-    mnli_tokenizer = AutoTokenizer.from_pretrained("roberta-large-mnli")
-    m = nn.Softmax(dim=1)
-    # batch_size_gen = 1
-    # batch_size_xlm = 128
-    # batch_size_mnli = 128
-    print("Max Step: ", max_step)
-    if log_file is not None:
-        log_file.write(f"Max Step: {max_step} \n")
-        log_file.flush()
-    log_file.write(f"Number of sentences to corrupt is {len(id_sen_dict)} \n")
-    for step in range(1, max_step + 1):
-        mbart_add_seg_id_ls, mbart_add_start_ls, mbart_replace_seg_id_ls, mbart_replace_start_ls, mbart_replace_len_ls, xlm_add_seg_id_ls, xlm_add_start_ls, \
-        xlm_replace_seg_id_ls, xlm_replace_start_ls, swap_seg_id_ls, swap_start_ls, swap_end_ls, del_seg_id_ls, del_start_ls, del_len_ls, xlm_synonym_seg_id_ls, \
-        xlm_synonym_start_ls, xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls, step_noise_dict = noise_schedule(
-            id_sen_dict, step, sen_noise_dict, cand_dict_arr, del_noise_lam, mask_noise_lam, word_tokens=word_tokens,
-            use_new_operators=use_new_operators)
-        # produce the text for generate functions
-        mbart_ls, xlm_ls, swap_ls, delete_ls, synonym_ls, lemmatization_ls = [], [], [], [], [], []
-        # construct mbart add dataset
-        start_time = time.time()
-        for id, start_index in zip(mbart_add_seg_id_ls, mbart_add_start_ls):
-            mbart_ls.append(
-                data_construct(id_sen_dict[id]['text'][-1], 1, mbart_tokenizer, start_index, 0, word_tokens=word_tokens,
-                               pmi=pmi))
-        # construct mbart replace dataset
+        # load in mnli model for severity measures
+        mnli_model = AutoModelForSequenceClassification.from_pretrained("roberta-large-mnli")
+        mnli_model.eval()
+        mnli_tokenizer = AutoTokenizer.from_pretrained("roberta-large-mnli")
+        m = nn.Softmax(dim=1)
+        # batch_size_gen = 1
+        # batch_size_xlm = 128
+        # batch_size_mnli = 128
+        print("Max Step: ", max_step)
         if log_file is not None:
-            log_file.write(f"Done Mbart add {time.time() - start_time:.4f} seconds \n")
+            log_file.write(f"Max Step: {max_step} \n")
             log_file.flush()
-        print(f"Done Mbart add {time.time() - start_time:.4f} seconds")
-        start_time = time.time()
-        for id, start_index, replace_len in zip(mbart_replace_seg_id_ls, mbart_replace_start_ls, mbart_replace_len_ls):
-            mbart_ls.append(data_construct(id_sen_dict[id]['text'][-1], 2, mbart_tokenizer, start_index, replace_len,
-                                           word_tokens=word_tokens, pmi=pmi))
-        if log_file is not None:
-            log_file.write(f"Done Mbart replace {time.time() - start_time:.4f} seconds \n")
+        log_file.write(f"Number of sentences to corrupt is {len(id_sen_dict)} \n")
+        for step in range(1, max_step + 1):
+            mbart_add_seg_id_ls, mbart_add_start_ls, mbart_replace_seg_id_ls, mbart_replace_start_ls, mbart_replace_len_ls, xlm_add_seg_id_ls, xlm_add_start_ls, \
+            xlm_replace_seg_id_ls, xlm_replace_start_ls, swap_seg_id_ls, swap_start_ls, swap_end_ls, del_seg_id_ls, del_start_ls, del_len_ls, xlm_synonym_seg_id_ls, \
+            xlm_synonym_start_ls, xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls, step_noise_dict = noise_schedule(
+                id_sen_dict, step, sen_noise_dict, cand_dict_arr, del_noise_lam, mask_noise_lam, word_tokens=word_tokens,
+                use_new_operators=use_new_operators)
+            # produce the text for generate functions
+            mbart_ls, xlm_ls, swap_ls, delete_ls, synonym_ls, lemmatization_ls = [], [], [], [], [], []
+            # construct mbart add dataset
+            start_time = time.time()
+            for id, start_index in zip(mbart_add_seg_id_ls, mbart_add_start_ls):
+                mbart_ls.append(
+                    data_construct(id_sen_dict[id]['text'][-1], 1, mbart_tokenizer, start_index, 0, word_tokens=word_tokens,
+                                   pmi=pmi))
+            # construct mbart replace dataset
+            if log_file is not None:
+                log_file.write(f"Done Mbart add {time.time() - start_time:.4f} seconds \n")
+                log_file.flush()
+            print(f"Done Mbart add {time.time() - start_time:.4f} seconds")
+            start_time = time.time()
+            for id, start_index, replace_len in zip(mbart_replace_seg_id_ls, mbart_replace_start_ls, mbart_replace_len_ls):
+                mbart_ls.append(data_construct(id_sen_dict[id]['text'][-1], 2, mbart_tokenizer, start_index, replace_len,
+                                               word_tokens=word_tokens, pmi=pmi))
+            if log_file is not None:
+                log_file.write(f"Done Mbart replace {time.time() - start_time:.4f} seconds \n")
+                log_file.flush()
+            print(f"Done Mbart replace {time.time() - start_time:.4f} seconds")
+            start_time = time.time()
+            # construct xlm add dataset
+            for id, start_index in zip(xlm_add_seg_id_ls, xlm_add_start_ls):
+                xlm_ls.append(
+                    data_construct(id_sen_dict[id]['text'][-1], 3, xlm_tokenizer, start_index, 0, word_tokens=word_tokens,
+                                   pmi=pmi))
+            if log_file is not None:
+                log_file.write(f"Done add {time.time() - start_time:.4f} seconds \n")
+                log_file.flush()
+            print(f"Done add {time.time() - start_time:.4f} seconds")
+            start_time = time.time()
+            # construct xlm replace dataset
+            for id, start_index in zip(xlm_replace_seg_id_ls, xlm_replace_start_ls):
+                xlm_ls.append(
+                    data_construct(id_sen_dict[id]['text'][-1], 4, xlm_tokenizer, start_index, 1, word_tokens=word_tokens,
+                                   pmi=pmi))
+            if log_file is not None:
+                log_file.write(f"Done replace {time.time() - start_time:.4f} seconds \n")
+                log_file.flush()
+            print(f"Done replace {time.time() - start_time:.4f} seconds")
+            start_time = time.time()
+            # construct swap dataset
+            for id, start_index, end_index in zip(swap_seg_id_ls, swap_start_ls, swap_end_ls):
+                swap_ls.append(
+                    data_construct(id_sen_dict[id]['text'][-1], 5, xlm_tokenizer, start_index, end_index,
+                                   word_tokens=word_tokens, pmi=pmi))
             log_file.flush()
-        print(f"Done Mbart replace {time.time() - start_time:.4f} seconds")
-        start_time = time.time()
-        # construct xlm add dataset
-        for id, start_index in zip(xlm_add_seg_id_ls, xlm_add_start_ls):
-            xlm_ls.append(
-                data_construct(id_sen_dict[id]['text'][-1], 3, xlm_tokenizer, start_index, 0, word_tokens=word_tokens,
-                               pmi=pmi))
-        if log_file is not None:
-            log_file.write(f"Done add {time.time() - start_time:.4f} seconds \n")
-            log_file.flush()
-        print(f"Done add {time.time() - start_time:.4f} seconds")
-        start_time = time.time()
-        # construct xlm replace dataset
-        for id, start_index in zip(xlm_replace_seg_id_ls, xlm_replace_start_ls):
-            xlm_ls.append(
-                data_construct(id_sen_dict[id]['text'][-1], 4, xlm_tokenizer, start_index, 1, word_tokens=word_tokens,
-                               pmi=pmi))
-        if log_file is not None:
-            log_file.write(f"Done replace {time.time() - start_time:.4f} seconds \n")
-            log_file.flush()
-        print(f"Done replace {time.time() - start_time:.4f} seconds")
-        start_time = time.time()
-        # construct swap dataset
-        for id, start_index, end_index in zip(swap_seg_id_ls, swap_start_ls, swap_end_ls):
-            swap_ls.append(
-                data_construct(id_sen_dict[id]['text'][-1], 5, xlm_tokenizer, start_index, end_index,
-                               word_tokens=word_tokens, pmi=pmi))
-        log_file.flush()
-        if log_file is not None:
-            log_file.write(f"Done swap {time.time() - start_time:.4f} seconds \n")
-            log_file.flush()
-        print(f"Done swap {time.time() - start_time:.4f} seconds")
-        start_time = time.time()
-        # construct del dataset
-        for id, start_index, del_len in zip(del_seg_id_ls, del_start_ls, del_len_ls):
-            delete_ls.append(
-                data_construct(id_sen_dict[id]['text'][-1], 6, xlm_tokenizer, start_index, del_len,
-                               word_tokens=word_tokens, pmi=pmi))
-        if log_file is not None:
-            log_file.write(f"Done delete {time.time() - start_time:.4f} seconds \n")
-            log_file.flush()
-        print(f"Done delete {time.time() - start_time:.4f} seconds")
-        start_time = time.time()
-        for id, start_index in zip(xlm_synonym_seg_id_ls, xlm_synonym_start_ls):
-            synonym_ls.append(
-                data_construct(id_sen_dict[id]['text'][-1], 7, xlm_tokenizer, start_index, 0, word_tokens=word_tokens,
-                               pmi=pmi, analysis_logger=analysis_logger))
-        if log_file is not None:
-            log_file.write(f"Done synonyms {time.time() - start_time:.4f} seconds \n")
-            log_file.flush()
-        print(f"Done synonyms {time.time() - start_time:.4f} seconds")
-        start_time = time.time()
-        for id, start_index in zip(xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls):
-            lemmatization_ls.append(
-                data_construct(id_sen_dict[id]['text'][-1], 8, xlm_tokenizer, start_index, 0, word_tokens=word_tokens,
-                               pmi=pmi))
-        if log_file is not None:
-            log_file.write(f"Done lemmatization {time.time() - start_time:.4f} seconds \n")
-            log_file.flush()
-        print(f"Done lemmatization {time.time() - start_time:.4f} seconds")
-        if log_file is not None:
-            log_file.write("All <mask>/non <mask> datasets are constructed for generation \n")
-            log_file.flush()
-        print("All <mask>/non <mask> datasets are constructed for generation")
-        # sentence seg id with corresponding generated texts
-        new_seg_ids, new_step_ls, step_score_ls = [], [], []
+            if log_file is not None:
+                log_file.write(f"Done swap {time.time() - start_time:.4f} seconds \n")
+                log_file.flush()
+            print(f"Done swap {time.time() - start_time:.4f} seconds")
+            start_time = time.time()
+            # construct del dataset
+            for id, start_index, del_len in zip(del_seg_id_ls, del_start_ls, del_len_ls):
+                delete_ls.append(
+                    data_construct(id_sen_dict[id]['text'][-1], 6, xlm_tokenizer, start_index, del_len,
+                                   word_tokens=word_tokens, pmi=pmi))
+            if log_file is not None:
+                log_file.write(f"Done delete {time.time() - start_time:.4f} seconds \n")
+                log_file.flush()
+            print(f"Done delete {time.time() - start_time:.4f} seconds")
+            start_time = time.time()
+            for id, start_index in zip(xlm_synonym_seg_id_ls, xlm_synonym_start_ls):
+                synonym_ls.append(
+                    data_construct(id_sen_dict[id]['text'][-1], 7, xlm_tokenizer, start_index, 0, word_tokens=word_tokens,
+                                   pmi=pmi, analysis_logger=analysis_logger))
+            if log_file is not None:
+                log_file.write(f"Done synonyms {time.time() - start_time:.4f} seconds \n")
+                log_file.flush()
+            print(f"Done synonyms {time.time() - start_time:.4f} seconds")
+            start_time = time.time()
+            for id, start_index in zip(xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls):
+                lemmatization_ls.append(
+                    data_construct(id_sen_dict[id]['text'][-1], 8, xlm_tokenizer, start_index, 0, word_tokens=word_tokens,
+                                   pmi=pmi))
+            if log_file is not None:
+                log_file.write(f"Done lemmatization {time.time() - start_time:.4f} seconds \n")
+                log_file.flush()
+            print(f"Done lemmatization {time.time() - start_time:.4f} seconds")
+            if log_file is not None:
+                log_file.write("All <mask>/non <mask> datasets are constructed for generation \n")
+                log_file.flush()
+            print("All <mask>/non <mask> datasets are constructed for generation")
+            # sentence seg id with corresponding generated texts
+            new_seg_ids, new_step_ls, step_score_ls = [], [], []
 
-        new_seg_ids.extend(mbart_add_seg_id_ls)  # add in all seg ids for mbart add
-        new_seg_ids.extend(mbart_replace_seg_id_ls)  # add in all seg ids for mbart replace
-        # add all generated mbart add/replace texts into the new_step_ls
-        mbart_model = mbart_model.to(device)
-        if log_file is not None and step == 1:
-            log_file.write(f"Number of sentences for mbart is {len(mbart_ls)} \n")
-            log_file.flush()
-        print(len(mbart_ls))
-        start_time = time.time()
-        for mbart_batch in tqdm(batchify(mbart_ls, mbart_batch_size)):
-            # TODO: Figure out how to make it work
-            mbart_texts = mbart_generation(mbart_batch, mbart_model, lang, mbart_tokenizer, device, word_tokens)
-            new_step_ls.extend(mbart_texts)
-        if log_file is not None and step == 1:
-            log_file.write(f"Mbart time is {time.time() - start_time:.4f} \n")
-            log_file.flush()
-        mbart_model = mbart_model.to('cpu')
-        torch.cuda.empty_cache()
-        new_seg_ids.extend(xlm_add_seg_id_ls)  # add in all seg ids for xlm add
-        new_seg_ids.extend(xlm_replace_seg_id_ls)  # add in all seg ids for xlm replace
-        # add all generated xlm add/replace texts into the new_step_ls
-        xlm_model = xlm_model.to(device)
-        if log_file is not None:
-            log_file.write(f"Number of sentences for xlm is {len(xlm_ls)} \n")
-            log_file.flush()
-        print(len(xlm_ls))
-        start_time = time.time()
-        for xlm_batch in tqdm(batchify(xlm_ls, xlm_batch_size)):
-            xlm_texts = xlm_roberta_generate(xlm_batch, xlm_model, xlm_tokenizer, device, word_tokens)
-            new_step_ls.extend(xlm_texts)
-        if log_file is not None:
-            log_file.write(f"xlm time is {time.time() - start_time:.4f} \n")
-            log_file.flush()
-        xlm_model = xlm_model.to('cpu')
-        torch.cuda.empty_cache()
-        new_seg_ids.extend(swap_seg_id_ls)  # add in all seg ids for swap
-        new_step_ls.extend(swap_ls)
-        new_seg_ids.extend(del_seg_id_ls)  # add in all seg ids for delete
-        new_step_ls.extend(delete_ls)
+            new_seg_ids.extend(mbart_add_seg_id_ls)  # add in all seg ids for mbart add
+            new_seg_ids.extend(mbart_replace_seg_id_ls)  # add in all seg ids for mbart replace
+            # add all generated mbart add/replace texts into the new_step_ls
+            mbart_model = mbart_model.to(device)
+            if log_file is not None and step == 1:
+                log_file.write(f"Number of sentences for mbart is {len(mbart_ls)} \n")
+                log_file.flush()
+            print(len(mbart_ls))
+            start_time = time.time()
+            for mbart_batch in tqdm(batchify(mbart_ls, mbart_batch_size)):
+                # TODO: Figure out how to make it work
+                mbart_texts = mbart_generation(mbart_batch, mbart_model, lang, mbart_tokenizer, device, word_tokens)
+                new_step_ls.extend(mbart_texts)
+            if log_file is not None and step == 1:
+                log_file.write(f"Mbart time is {time.time() - start_time:.4f} \n")
+                log_file.flush()
+            mbart_model = mbart_model.to('cpu')
+            torch.cuda.empty_cache()
+            new_seg_ids.extend(xlm_add_seg_id_ls)  # add in all seg ids for xlm add
+            new_seg_ids.extend(xlm_replace_seg_id_ls)  # add in all seg ids for xlm replace
+            # add all generated xlm add/replace texts into the new_step_ls
+            xlm_model = xlm_model.to(device)
+            if log_file is not None:
+                log_file.write(f"Number of sentences for xlm is {len(xlm_ls)} \n")
+                log_file.flush()
+            print(len(xlm_ls))
+            start_time = time.time()
+            for xlm_batch in tqdm(batchify(xlm_ls, xlm_batch_size)):
+                xlm_texts = xlm_roberta_generate(xlm_batch, xlm_model, xlm_tokenizer, device, word_tokens)
+                new_step_ls.extend(xlm_texts)
+            if log_file is not None:
+                log_file.write(f"xlm time is {time.time() - start_time:.4f} \n")
+                log_file.flush()
+            xlm_model = xlm_model.to('cpu')
+            torch.cuda.empty_cache()
+            new_seg_ids.extend(swap_seg_id_ls)  # add in all seg ids for swap
+            new_step_ls.extend(swap_ls)
+            new_seg_ids.extend(del_seg_id_ls)  # add in all seg ids for delete
+            new_step_ls.extend(delete_ls)
 
-        new_seg_ids.extend(xlm_synonym_seg_id_ls)
-        new_step_ls.extend(synonym_ls)
-        new_seg_ids.extend(xlm_lemmatization_seg_id_ls)
-        new_step_ls.extend(lemmatization_ls)
+            new_seg_ids.extend(xlm_synonym_seg_id_ls)
+            new_step_ls.extend(synonym_ls)
+            new_seg_ids.extend(xlm_lemmatization_seg_id_ls)
+            new_step_ls.extend(lemmatization_ls)
 
-        # update all cand dict arr for add/replace from xlm, swap and delete noises
-        cand_dict_arr = add_update_cand_dict(cand_dict_arr, xlm_add_seg_id_ls, xlm_add_start_ls)
-        cand_dict_arr = replace_update_cand_dict(cand_dict_arr, xlm_replace_seg_id_ls, xlm_replace_start_ls)
-        cand_dict_arr = swap_update_cand_dict(cand_dict_arr, swap_seg_id_ls, swap_start_ls, swap_end_ls)
-        cand_dict_arr = delete_update_cand_dict(cand_dict_arr, del_seg_id_ls, del_start_ls, del_len_ls)
+            # update all cand dict arr for add/replace from xlm, swap and delete noises
+            cand_dict_arr = add_update_cand_dict(cand_dict_arr, xlm_add_seg_id_ls, xlm_add_start_ls)
+            cand_dict_arr = replace_update_cand_dict(cand_dict_arr, xlm_replace_seg_id_ls, xlm_replace_start_ls)
+            cand_dict_arr = swap_update_cand_dict(cand_dict_arr, swap_seg_id_ls, swap_start_ls, swap_end_ls)
+            cand_dict_arr = delete_update_cand_dict(cand_dict_arr, del_seg_id_ls, del_start_ls, del_len_ls)
 
-        cand_dict_arr = replace_update_cand_dict(cand_dict_arr, xlm_synonym_seg_id_ls, xlm_synonym_start_ls)
-        cand_dict_arr = replace_update_cand_dict(cand_dict_arr, xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls)
-        prev_step_ls = prev_ids_sens_extract(id_sen_dict, new_seg_ids)
-        if step == 1:
-            original = prev_step_ls.copy()
-        if log_file is not None:
-            log_file.write("Finish one step sentence generation! \n")
-            log_file.flush()
-        print("Finish one step sentence generation!")
-        mnli_model = mnli_model.to(device)
-        start_time = time.time()
-        # use MNLI Roberta large model to determine the severities and scores
-        if analysis_logger is not None:
-            analysis_logger.write("Score analysis \n")
-        for prev_batch, cur_batch, idx_batch in tqdm(zip(batchify(prev_step_ls, mnli_batch_size),
-                                                         batchify(new_step_ls, mnli_batch_size),
-                                                         batchify(new_seg_ids, mnli_batch_size))):
-            if severity == 'original':
-                temp_scores_ls = severity_measure(mnli_model, mnli_tokenizer, m, prev_batch, cur_batch, device)
-            elif severity == 'positive_correction':
-                temp_scores_ls = severity_measure_with_positive_correction(mnli_model, mnli_tokenizer, m, prev_batch,
-                                                                           cur_batch, device,
-                                                                           ref_lines, idx_batch, lam=args.lam,
-                                                                           analysis_logger=analysis_logger)
+            cand_dict_arr = replace_update_cand_dict(cand_dict_arr, xlm_synonym_seg_id_ls, xlm_synonym_start_ls)
+            cand_dict_arr = replace_update_cand_dict(cand_dict_arr, xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls)
+            prev_step_ls = prev_ids_sens_extract(id_sen_dict, new_seg_ids)
+            if step == 1:
+                original = prev_step_ls.copy()
+            if log_file is not None:
+                log_file.write("Finish one step sentence generation! \n")
+                log_file.flush()
+            print("Finish one step sentence generation!")
+            mnli_model = mnli_model.to(device)
+            start_time = time.time()
+            # use MNLI Roberta large model to determine the severities and scores
+            if analysis_logger is not None:
+                analysis_logger.write("Score analysis \n")
+            for prev_batch, cur_batch, idx_batch in tqdm(zip(batchify(prev_step_ls, mnli_batch_size),
+                                                             batchify(new_step_ls, mnli_batch_size),
+                                                             batchify(new_seg_ids, mnli_batch_size))):
+                if severity == 'original':
+                    temp_scores_ls = severity_measure(mnli_model, mnli_tokenizer, m, prev_batch, cur_batch, device)
+                elif severity == 'positive_correction':
+                    temp_scores_ls = severity_measure_with_positive_correction(mnli_model, mnli_tokenizer, m, prev_batch,
+                                                                               cur_batch, device,
+                                                                               ref_lines, idx_batch, lam=args.lam,
+                                                                               analysis_logger=analysis_logger)
 
-            elif severity == "continuous_scoring_geometric_mean":
-                temp_scores_ls = severity_measure_with_continuous_scoring_geometric_mean(mnli_model, mnli_tokenizer, m, prev_batch,
-                                                                          cur_batch, device, n=args.n,
-                                                                          analysis_logger=analysis_logger)
-            elif severity == "continuous_scoring_arithmetic_mean":
-                temp_scores_ls = severity_measure_with_continuous_scoring_arithmetic_mean(mnli_model, mnli_tokenizer, m, prev_batch,
-                                                                          cur_batch, device, n=args.n,
-                                                                          analysis_logger=analysis_logger)
-            elif severity == "constant_score":
-                temp_scores_ls = np.ones(len(prev_batch)) * -5
-            else:
-                raise ValueError("Severity scoring not recognized!")
-            step_score_ls.extend(temp_scores_ls)
-        if log_file is not None:
-            log_file.write("Finish one step MNLI! \n")
-            log_file.write(f"Mnli time is {time.time() - start_time:.4f} \n")
-            log_file.flush()
-        print("Finish one step MNLI!")
-        mnli_model = mnli_model.to('cpu')
-        torch.cuda.empty_cache()
-        # update all the sentences and scores in the prev dict
-        for id, new_sen, score in zip(new_seg_ids, new_step_ls, step_score_ls):
-            new_sen = " ".join(new_sen.split())
-            if new_sen not in id_sen_dict[id]['text']:
-                id_sen_dict[id]['text'].append(new_sen)
-                id_sen_dict[id]['score'] += score
-                id_sen_score_dict[id].append(new_sen + f" [Score: {score}, Info: {step_noise_dict[id]}]")
-            else:
-                print(id_sen_dict[id]['text'])
-                print(new_sen)
-        print("Finish one step")
+                elif severity == "continuous_scoring_geometric_mean":
+                    temp_scores_ls = severity_measure_with_continuous_scoring_geometric_mean(mnli_model, mnli_tokenizer, m, prev_batch,
+                                                                              cur_batch, device, n=args.n,
+                                                                              analysis_logger=analysis_logger)
+                elif severity == "continuous_scoring_arithmetic_mean":
+                    temp_scores_ls = severity_measure_with_continuous_scoring_arithmetic_mean(mnli_model, mnli_tokenizer, m, prev_batch,
+                                                                              cur_batch, device, n=args.n,
+                                                                              analysis_logger=analysis_logger)
+                elif severity == "constant_score":
+                    temp_scores_ls = np.ones(len(prev_batch)) * -5
+                else:
+                    raise ValueError("Severity scoring not recognized!")
+                step_score_ls.extend(temp_scores_ls)
+            if log_file is not None:
+                log_file.write("Finish one step MNLI! \n")
+                log_file.write(f"Mnli time is {time.time() - start_time:.4f} \n")
+                log_file.flush()
+            print("Finish one step MNLI!")
+            mnli_model = mnli_model.to('cpu')
+            torch.cuda.empty_cache()
+            # update all the sentences and scores in the prev dict
+            for id, new_sen, score in zip(new_seg_ids, new_step_ls, step_score_ls):
+                new_sen = " ".join(new_sen.split())
+                if new_sen not in id_sen_dict[id]['text']:
+                    id_sen_dict[id]['text'].append(new_sen)
+                    id_sen_dict[id]['score'] += score
+                    id_sen_score_dict[id].append(new_sen + f" [Score: {score}, Info: {step_noise_dict[id]}]")
+                else:
+                    print(id_sen_dict[id]['text'])
+                    print(new_sen)
+            print("Finish one step")
 
-    return id_sen_dict, id_sen_score_dict
+        return id_sen_dict, id_sen_score_dict
+    except Exception:
+        import pickle
+        step_noise_dict_path = dir_path + f'/noise_dict.pickle'
+        sentences_dict_path = dir_path + f'/sentences_dict.pickle'
+        with open(step_noise_dict_path, 'wb') as f:
+            pickle.dump(step_noise_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(sentences_dict_path,'wb') as f:
+            pickle.dump(id_sen_score_dict,f,protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def parser_args():

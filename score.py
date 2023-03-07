@@ -15,7 +15,7 @@ def parser_args():
     args.add_argument('-num_var', type=int, default=1)
     args.add_argument('-ref', type=str, default='case_study_ref/wmt_train_small_fixed.txt')
     args.add_argument('-batch_size', default=160, type=int)
-    args.add_argument('-save_dir', default="ablation_study_results", type=str)
+    args.add_argument('-save_dir', default="big_models_results", type=str)
     args.add_argument('-lam', default=1, type=int)
     args.add_argument('-analysis_mode', default=False, action='store_true')
     args.add_argument('-analysis_save_dir', default="analysis_data", type=str)
@@ -256,6 +256,8 @@ def save_scores():
         os.mkdir(dir_path)
     csvfile = open(dir_path + '/' + args.save_name, 'w')
     csvwriter = csv.writer(csvfile)
+    fields = ['mt', 'ref', 'score']
+    csvwriter.writerow(fields)
     ref_lines = open(args.ref, 'r').readlines()
     ref_lines = [" ".join(line[:-1].split()) for line in ref_lines]
     id_sen_dict = score_corrupt_sentences(ref_lines, args)

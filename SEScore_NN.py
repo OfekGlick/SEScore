@@ -202,7 +202,7 @@ def train():
             f.write(f"Test pearson correlation {pearson_correlation:.4f}\n")
             f.write(f"Test kendell tau correlation {kendell_tau_correlation:.4f}\n")
             f.write('\n')
-        #torch.save(score_function.state_dict(), save_dir + f'/model_weights_epoch_{epoch}.pkl')
+        torch.save(score_function.state_dict(), save_dir + f'/model_weights_epoch_{epoch}.pkl')
 
 
 if __name__ == "__main__":
