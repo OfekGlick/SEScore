@@ -21,7 +21,7 @@ def select_random_synonym(word):
         new_word = []
         for w in words:
             new_word.append(select_random_synonym(w))
-        return "♣".join(new_word)
+        return " ".join(new_word)
     synonyms = set()
     synonyms.add(word)
     for syn in wordnet.synsets(word):
@@ -51,7 +51,7 @@ def lemmatize(word):
         new_word = []
         for w in words:
             new_word.append(lemmatize(w))
-        return "♣".join(new_word)
+        return " ".join(new_word)
     wml = WordNetLemmatizer()
     pos = get_wordnet_pos(pos_tag([word])[0][1])
     if pos is None:

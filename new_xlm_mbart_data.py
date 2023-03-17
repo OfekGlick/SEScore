@@ -237,12 +237,14 @@ def add_update_cand_dict(cand_dict_arr, add_seg_id_ls, add_start_ls):
     for add_seg_id, add_start in zip(add_seg_id_ls, add_start_ls):
         new_cand_ls = []
         # update all the values on the left
-        for index, _ in enumerate(cand_dict_arr[add_seg_id]['xlm'][:add_start + 1]):
+        for index, _ in enumerate(cand_dict_arr[add_seg_id]['xlm'][:add_start]):
             new_cand_ls.append(min(add_start - index, cand_dict_arr[add_seg_id]['xlm'][index]))
         new_cand_ls.extend([0])
-        if cand_dict_arr[add_seg_id]['xlm'].shape[
-            0] == 126:  # xlm at most have sequence length of 126 to incorporate <s> </s> tokens
-            new_cand_ls.extend(list(cand_dict_arr[add_seg_id]['xlm'][add_start + 1:-1]))
+        # if cand_dict_arr[add_seg_id]['xlm'].shape[
+        #     0] == 126:  # xlm at most have sequence length of 126 to incorporate <s> </s> tokens
+        #     new_cand_ls.extend(list(cand_dict_arr[add_seg_id]['xlm'][add_start + 1:-1]))
+
+        #new_cand_ls.extend(list(cand_dict_arr[add_seg_id]['xlm'][add_start:]))
         cand_dict_arr[add_seg_id]['xlm'] = np.array(new_cand_ls)
     return cand_dict_arr
 
@@ -254,10 +256,12 @@ def replace_update_cand_dict(cand_dict_arr, replace_seg_id_ls, replace_start_ls)
     for replace_seg_id, replace_start in zip(replace_seg_id_ls, replace_start_ls):
         new_cand_ls = []
         # update all the values on the left
-        for index, _ in enumerate(cand_dict_arr[replace_seg_id]['xlm'][:replace_start + 1]):
+        #for index, _ in enumerate(cand_dict_arr[replace_seg_id]['xlm'][:replace_start + 1]):
+        for index, _ in enumerate(cand_dict_arr[replace_seg_id]['xlm'][:replace_start]):
             new_cand_ls.append(min(replace_start - index, cand_dict_arr[replace_seg_id]['xlm'][index]))
         new_cand_ls.extend([0])
-        new_cand_ls.extend(list(cand_dict_arr[replace_seg_id]['xlm'][replace_start + 2:]))
+        #new_cand_ls.extend(list(cand_dict_arr[replace_seg_id]['xlm'][replace_start + 2:]))
+        new_cand_ls.extend(list(cand_dict_arr[replace_seg_id]['xlm'][replace_start + 1:]))
         cand_dict_arr[replace_seg_id]['xlm'] = np.array(new_cand_ls)
     return cand_dict_arr
 
@@ -269,9 +273,11 @@ def delete_update_cand_dict(cand_dict_arr, del_seg_id_ls, del_start_ls, del_len_
     for del_seg_id, del_start, del_len in zip(del_seg_id_ls, del_start_ls, del_len_ls):
         new_cand_ls = []
         # update all the values on the left
-        for index in range(len(cand_dict_arr[del_seg_id]['xlm'][:del_start + 1])):
+        #for index in range(len(cand_dict_arr[del_seg_id]['xlm'][:del_start + 1])):
+        for index in range(len(cand_dict_arr[del_seg_id]['xlm'][:del_start])):
             new_cand_ls.append(min(del_start - index, cand_dict_arr[del_seg_id]['xlm'][index]))
-        new_cand_ls.extend(list(cand_dict_arr[del_seg_id]['xlm'][del_start + 1 + del_len:]))
+        #new_cand_ls.extend(list(cand_dict_arr[del_seg_id]['xlm'][del_start + 1 + del_len:]))
+        new_cand_ls.extend(list(cand_dict_arr[del_seg_id]['xlm'][del_start + del_len:]))
         cand_dict_arr[del_seg_id]['xlm'] = np.array(new_cand_ls)
     return cand_dict_arr
 
@@ -288,13 +294,18 @@ def prev_ids_sens_extract(id_sen_dict, new_seg_ids,pmi = False):
 def swap_update_cand_dict(cand_dict_arr, swap_seg_id_ls, swap_start_ls, swap_end_ls):
     for swap_seg_id, swap_start, swap_end in zip(swap_seg_id_ls, swap_start_ls, swap_end_ls):
         new_cand_ls = []
-        for index in range(len(cand_dict_arr[swap_seg_id]['xlm'][:swap_start + 1])):
+        #for index in range(len(cand_dict_arr[swap_seg_id]['xlm'][:swap_start + 1])):
+        for index in range(len(cand_dict_arr[swap_seg_id]['xlm'][:swap_start])):
             new_cand_ls.append(min(swap_start - index, cand_dict_arr[swap_seg_id]['xlm'][index]))
         new_cand_ls += [0]
-        for index in range(len(cand_dict_arr[swap_seg_id]['xlm'][swap_start + 2:swap_end + 1])):
+        #for index in range(len(cand_dict_arr[swap_seg_id]['xlm'][swap_start + 2:swap_end + 1])):
+        for index in range(len(cand_dict_arr[swap_seg_id]['xlm'][swap_start + 1:swap_end])):
+            # new_cand_ls.append(
+            #     min(swap_end - swap_start - index, cand_dict_arr[swap_seg_id]['xlm'][swap_start + 2 + index]))
             new_cand_ls.append(
-                min(swap_end - swap_start - index, cand_dict_arr[swap_seg_id]['xlm'][swap_start + 2 + index]))
-        new_cand_ls += [0] + list(cand_dict_arr[swap_seg_id]['xlm'][swap_end + 2:])
+                min(swap_end - swap_start - index-1, cand_dict_arr[swap_seg_id]['xlm'][swap_start + 1 + index]))
+        #new_cand_ls += [0] + list(cand_dict_arr[swap_seg_id]['xlm'][swap_end + 2:])
+        new_cand_ls += [0] + list(cand_dict_arr[swap_seg_id]['xlm'][swap_end + 1:])
         cand_dict_arr[swap_seg_id]['xlm'] = np.array(new_cand_ls)
     return cand_dict_arr
 
@@ -479,7 +490,7 @@ def infer_ops_num_and_start_index_mbart(text, tokenizer, start_index, num_ops, p
 
 def infer_token_location_index_xlm(text, tokenizer, index, pmi):
     words = text.split()
-    sub_sen = " ".join(words[:index + 1])
+    sub_sen = " ".join(words[:index])
     if pmi:
         sub_sen = sub_sen.replace("♣", " ")
     # tok_text = \
@@ -495,7 +506,7 @@ def infer_token_location_index_xlm(text, tokenizer, index, pmi):
 def infer_ops_num_and_start_index_xlm(text, tokenizer, start_index, num_ops, pmi):
     token_start = infer_token_location_index_xlm(text, tokenizer, start_index, pmi)
     words = text.split()
-    sub_sen = " ".join(words[:start_index + num_ops + 1])
+    sub_sen = " ".join(words[:start_index + num_ops])
     if pmi:
         sub_sen = sub_sen.replace("♣", " ")
     # tok_text = \
@@ -510,8 +521,8 @@ def infer_ops_num_and_start_index_xlm(text, tokenizer, start_index, num_ops, pmi
 
 def infer_swap_size(text, tokenizer, start_index, num_ops, pmi):
     words = text.split()
-    first_word = words[start_index + 1]
-    second_word = words[num_ops + 1]
+    first_word = words[start_index]
+    second_word = words[num_ops]
     if pmi:
         first_word = first_word.replace("♣", " ")
         second_word = second_word.replace("♣", " ")
@@ -546,9 +557,13 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, word_token
         tok_text = \
             tokenizer(sen, add_special_tokens=True, return_tensors="pt", truncation=True,
                       padding=True)['input_ids']
+        # input_ids = torch.cat(
+        #     (tok_text[0][:start_index + 2], torch.LongTensor([tokenizer.mask_token_id]),
+        #      tok_text[0][start_index + 2:]),
+        #     dim=0)  # index shifts by 1 bc of </s>
         input_ids = torch.cat(
-            (tok_text[0][:start_index + 2], torch.LongTensor([tokenizer.mask_token_id]),
-             tok_text[0][start_index + 2:]),
+            (tok_text[0][:start_index + 1], torch.LongTensor([tokenizer.mask_token_id]),
+             tok_text[0][start_index + 1:]),
             dim=0)  # index shifts by 1 bc of </s>
     elif noise_type == 2:
         if word_tokens:
@@ -562,8 +577,10 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, word_token
         tok_text = \
             tokenizer(sen, add_special_tokens=True, return_tensors="pt", truncation=True, padding=True)[
                 'input_ids']
-        input_ids = torch.cat((tok_text[0][:start_index + 2], torch.LongTensor([tokenizer.mask_token_id]),
-                               tok_text[0][start_index + 2 + num_ops:]), dim=0)  # index shifts by 1 bc of </s>
+        # input_ids = torch.cat((tok_text[0][:start_index + 2], torch.LongTensor([tokenizer.mask_token_id]),
+        #                        tok_text[0][start_index + 2 + num_ops:]), dim=0)  # index shifts by 1 bc of </s>
+        input_ids = torch.cat((tok_text[0][:start_index + 1], torch.LongTensor([tokenizer.mask_token_id]),
+                               tok_text[0][start_index + 1 + num_ops:]), dim=0)
     elif noise_type == 3:
         if word_tokens:
             start_index = infer_token_location_index_xlm(text, tokenizer, start_index, pmi)
@@ -575,8 +592,11 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, word_token
         tok_text = \
             tokenizer(text, add_special_tokens=False, return_tensors="pt", truncation=True,
                       padding=True)['input_ids']
+        # input_ids = torch.cat(
+        #     (tok_text[0][:start_index + 1], torch.LongTensor([tokenizer.mask_token_id]), tok_text[0][start_index + 1:]),
+        #     dim=0)
         input_ids = torch.cat(
-            (tok_text[0][:start_index + 1], torch.LongTensor([tokenizer.mask_token_id]), tok_text[0][start_index + 1:]),
+            (tok_text[0][:start_index], torch.LongTensor([tokenizer.mask_token_id]), tok_text[0][start_index:]),
             dim=0)
     elif noise_type == 4:
         if word_tokens:
@@ -589,8 +609,10 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, word_token
         tok_text = \
             tokenizer(text, add_special_tokens=False, return_tensors="pt", truncation=True,
                       padding=True)['input_ids']
-        input_ids = torch.cat((tok_text[0][:start_index + 1], torch.LongTensor([tokenizer.mask_token_id]),
-                               tok_text[0][start_index + 1 + num_ops:]), dim=0)
+        # input_ids = torch.cat((tok_text[0][:start_index + 1], torch.LongTensor([tokenizer.mask_token_id]),
+        #                        tok_text[0][start_index + 1 + num_ops:]), dim=0)
+        input_ids = torch.cat((tok_text[0][:start_index ], torch.LongTensor([tokenizer.mask_token_id]),
+                                                       tok_text[0][start_index + num_ops:]), dim=0)
     elif noise_type == 5:
         if word_tokens:
             first_word_length, second_word_length = infer_swap_size(text, tokenizer, start_index, num_ops, pmi)
@@ -642,7 +664,8 @@ def data_construct(text, noise_type, tokenizer, start_index, num_ops, word_token
             tokenizer(text, add_special_tokens=False, return_tensors="pt", truncation=True,
                       padding=True)[
                 'input_ids']
-        input_ids = torch.cat((tok_text[0][:start_index + 1], tok_text[0][start_index + 1 + num_ops:]), dim=0)
+        #input_ids = torch.cat((tok_text[0][:start_index + 1], tok_text[0][start_index + 1 + num_ops:]), dim=0)
+        input_ids = torch.cat((tok_text[0][:start_index], tok_text[0][start_index + num_ops:]), dim=0)
         if word_tokens:
             text = tokenizer.decode(input_ids, skip_special_tokens=True)
             return adjust_punctuation([text])[0]
@@ -731,6 +754,17 @@ def xlm_roberta_generate(batch_text, model, xlm_tokenizer, device, word_tokens):
             probs = logits[i, masked_index].softmax(dim=0)
             values, predictions = probs.topk(4)
             pred = random.choices(predictions, k=1)[0]
+            counter = 0
+            top = 5
+            # Checks if the first char is a char or number.
+            # This will let us keep words such as can't by not using isalnum on the entire string
+            while (len(xlm_tokenizer.batch_decode(pred.unsqueeze(0))[0]) == 0) or (not xlm_tokenizer.batch_decode(pred.unsqueeze(0))[0][0].isalnum()):
+                pred = random.choices(predictions,k=1)[0]
+                counter += 1
+                if counter > 5:
+                    values, predictions = probs.topk(top)
+                    top += 1
+                    counter = 0
             input_ids[i][masked_index] = pred
         text = xlm_tokenizer.batch_decode(input_ids, skip_special_tokens=True)
         if word_tokens:
@@ -742,26 +776,55 @@ def xlm_roberta_generate(batch_text, model, xlm_tokenizer, device, word_tokens):
 # def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_lam, mask_noise_lam, device,
 #                         severity='original', word_tokens=False, pmi=False,use_new_operators = False,mbart_batch_size=8,xlm_batch_size = 128
 #                         ,mnli_batch_size=128 ):
-def pmi_sentence(ref_line, pmi_order):
-    words = ref_line.split()
-    used_indices = [0 for _ in range(len(words))]
-    for n in range(4, 1, -1):
-        ngrams_lst = ngrams(ref_line.split(), n)
-        for k, gram in enumerate(ngrams_lst):
-            gram_txt = " ".join(gram)
-            flag = not any([used_indices[j] for j in range(k, k + n)])
-            if gram_txt in pmi_order and flag:
-                for j in range(k, k + n):
-                    used_indices[j] = 1
-                gram_txt_replace = gram_txt.replace(" ", "♣")
-                ref_line = ref_line.replace(gram_txt, gram_txt_replace)
-    return ref_line
+def pmi_sentence(ref_line, pmi_order,existing_pmi):
+    if existing_pmi is None:
+        words = ref_line.split()
+        used_indices = [0 for _ in range(len(words))]
+        for n in range(4, 1, -1):
+            ngrams_lst = ngrams(ref_line.split(), n)
+            for k, gram in enumerate(ngrams_lst):
+                gram_txt = " ".join(gram)
+                flag = not any([used_indices[j] for j in range(k, k + n)])
+                if gram_txt in pmi_order and flag:
+                    for j in range(k, k + n):
+                        used_indices[j] = 1
+                    gram_txt_replace = gram_txt.replace(" ", "♣")
+                    ref_line = ref_line.replace(gram_txt, gram_txt_replace)
+        return ref_line
+    else:
+        temp = existing_pmi.copy()
+        words = ref_line.split()
+        used_indices = [0 for _ in range(len(words))]
+        for n in range(4, 1, -1):
+            ngrams_lst = ngrams(ref_line.split(), n)
+            for k, gram in enumerate(ngrams_lst):
+                gram_txt = " ".join(gram)
+                flag = not any([used_indices[j] for j in range(k, k + n)])
+                if gram_txt in temp and flag:
+                    for j in range(k, k + n):
+                        used_indices[j] = 1
+                    temp.remove(gram_txt)
+                    gram_txt_replace = gram_txt.replace(" ", "♣")
+                    ref_line = ref_line.replace(gram_txt, gram_txt_replace)
+        return ref_line
 
 
-def pmi_sen_dict(id_sen_dict, pmi_order):
+def count_pmi(sen):
+    pmi_list = []
+    tokens = sen.split(' ')
+    for token in tokens:
+        if "♣" in token:
+            pmi_list.append(token.replace("♣"," "))
+    return pmi_list
+
+def pmi_sen_dict(id_sen_dict, pmi_order,step):
     for key in id_sen_dict.keys():
         ref_line = id_sen_dict[key]['text'].pop(-1)
-        ref_line = pmi_sentence(ref_line, pmi_order)
+        if step == 1:
+            ref_line = pmi_sentence(ref_line, pmi_order,None)
+            id_sen_dict[key]['pmi'] = count_pmi(ref_line)
+        else:
+            ref_line = pmi_sentence(ref_line,None,id_sen_dict[key]['pmi'])
         id_sen_dict[key]['text'].append(ref_line)
     return id_sen_dict
 
@@ -770,9 +833,13 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
                         log_file, dir_path):
     # load in XLM-Roberta model
     id_sen_score_dict = {}
-    step_noise_dict = {}
     id_sen_dict = {}
-#    try:
+    step_noise_dict = {}
+    id = None
+    start_index = None
+    sen_ddd = None
+    cand_dict_arr = None
+    #try:
     severity = args.severity
     word_tokens = args.word_tokens
     pmi = args.pmi
@@ -805,7 +872,7 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
             id = str(line_index) + '_' + str(i)
             if word_tokens:
                 if pmi:
-                    new_ref_line = pmi_sentence(ref_line=ref_line, pmi_order=pmi_order)
+                    new_ref_line = pmi_sentence(ref_line=ref_line, pmi_order=pmi_order,existing_pmi=None)
                     words = new_ref_line.split()
                     tok_xlm_ls = words
                     tok_mbart_ls = words
@@ -843,7 +910,7 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
     log_file.write(f"Number of sentences to corrupt is {len(id_sen_dict)} \n")
     for step in range(1, max_step + 1):
         if pmi:
-            id_sen_dict = pmi_sen_dict(id_sen_dict, pmi_order)
+            id_sen_dict = pmi_sen_dict(id_sen_dict, pmi_order,step)
         mbart_add_seg_id_ls, mbart_add_start_ls, mbart_replace_seg_id_ls, mbart_replace_start_ls, mbart_replace_len_ls, xlm_add_seg_id_ls, xlm_add_start_ls, \
         xlm_replace_seg_id_ls, xlm_replace_start_ls, swap_seg_id_ls, swap_start_ls, swap_end_ls, del_seg_id_ls, del_start_ls, del_len_ls, xlm_synonym_seg_id_ls, \
         xlm_synonym_start_ls, xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls, step_noise_dict = noise_schedule(
@@ -855,6 +922,7 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         # construct mbart add dataset
         start_time = time.time()
         for id, start_index in zip(mbart_add_seg_id_ls, mbart_add_start_ls):
+            sen_ddd = id_sen_dict[id]['text'][-1]
             mbart_ls.append(
                 data_construct(id_sen_dict[id]['text'][-1], 1, mbart_tokenizer, start_index, 0,
                                word_tokens=word_tokens,
@@ -867,6 +935,7 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         start_time = time.time()
         for id, start_index, replace_len in zip(mbart_replace_seg_id_ls, mbart_replace_start_ls,
                                                 mbart_replace_len_ls):
+            sen_ddd = id_sen_dict[id]['text'][-1]
             mbart_ls.append(
                 data_construct(id_sen_dict[id]['text'][-1], 2, mbart_tokenizer, start_index, replace_len,
                                word_tokens=word_tokens, pmi=pmi))
@@ -877,6 +946,7 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         start_time = time.time()
         # construct xlm add dataset
         for id, start_index in zip(xlm_add_seg_id_ls, xlm_add_start_ls):
+            sen_ddd = id_sen_dict[id]['text'][-1]
             xlm_ls.append(
                 data_construct(id_sen_dict[id]['text'][-1], 3, xlm_tokenizer, start_index, 0,
                                word_tokens=word_tokens,
@@ -888,6 +958,7 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         start_time = time.time()
         # construct xlm replace dataset
         for id, start_index in zip(xlm_replace_seg_id_ls, xlm_replace_start_ls):
+            sen_ddd = id_sen_dict[id]['text'][-1]
             xlm_ls.append(
                 data_construct(id_sen_dict[id]['text'][-1], 4, xlm_tokenizer, start_index, 1,
                                word_tokens=word_tokens,
@@ -910,6 +981,7 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         start_time = time.time()
         # construct del dataset
         for id, start_index, del_len in zip(del_seg_id_ls, del_start_ls, del_len_ls):
+            sen_ddd = id_sen_dict[id]['text'][-1]
             delete_ls.append(
                 data_construct(id_sen_dict[id]['text'][-1], 6, xlm_tokenizer, start_index, del_len,
                                word_tokens=word_tokens, pmi=pmi))
@@ -919,6 +991,7 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         print(f"Done delete {time.time() - start_time:.4f} seconds")
         start_time = time.time()
         for id, start_index in zip(xlm_synonym_seg_id_ls, xlm_synonym_start_ls):
+            sen_ddd = id_sen_dict[id]['text'][-1]
             synonym_ls.append(
                 data_construct(id_sen_dict[id]['text'][-1], 7, xlm_tokenizer, start_index, 0,
                                word_tokens=word_tokens,
@@ -929,6 +1002,7 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         print(f"Done synonyms {time.time() - start_time:.4f} seconds")
         start_time = time.time()
         for id, start_index in zip(xlm_lemmatization_seg_id_ls, xlm_lemmatization_start_ls):
+            sen_ddd = id_sen_dict[id]['text'][-1]
             lemmatization_ls.append(
                 data_construct(id_sen_dict[id]['text'][-1], 8, xlm_tokenizer, start_index, 0,
                                word_tokens=word_tokens,
@@ -972,6 +1046,9 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
         print(len(xlm_ls))
         start_time = time.time()
         for xlm_batch in tqdm(batchify(xlm_ls, xlm_batch_size)):
+            for x in xlm_batch:
+                if x == '<mask> Arabia officially releases tourist visas to 49 countries, including China':
+                    print("jjjj")
             xlm_texts = xlm_roberta_generate(xlm_batch, xlm_model, xlm_tokenizer, device, word_tokens)
             new_step_ls.extend(xlm_texts)
         if log_file is not None:
@@ -1054,9 +1131,12 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
                 id_sen_dict[id]['text'].append(new_sen)
                 id_sen_dict[id]['score'] += score
                 id_sen_score_dict[id].append(new_sen + f" [Score: {score}, Info: {step_noise_dict[id]}]")
-            else:
-                print(id_sen_dict[id]['text'])
-                print(new_sen)
+            # else:
+            #     print(new_sen)
+
+                # id_sen_dict[id]['text'].append(new_sen)
+                # id_sen_dict[id]['score'] += 0
+                # id_sen_score_dict[id].append(new_sen + f" [Score: {score}, Info: {step_noise_dict[id]}]")
         print("Finish one step")
 
     return id_sen_dict, id_sen_score_dict
@@ -1065,13 +1145,18 @@ def text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_l
     #     step_noise_dict_path = dir_path + f'/noise_dict.pickle'
     #     sentences_dict_path = dir_path + f'/sentences_dict_dict.pickle'
     #     sentences_dict_and_operators_path = dir_path + f'/sentences_dict_and_operators_dict.pickle'
-    #
+    #     candidates_arrays_path = dir_path + f"/candidates_array.pickle"
     #     with open(step_noise_dict_path, 'wb') as f:
     #         pickle.dump(step_noise_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
     #     with open(sentences_dict_and_operators_path, 'wb') as f:
     #         pickle.dump(id_sen_score_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
     #     with open(sentences_dict_path, 'wb') as f:
     #         pickle.dump(id_sen_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+    #     with open(candidates_arrays_path,'wb') as f:
+    #         pickle.dump(cand_dict_arr,f, protocol=pickle.HIGHEST_PROTOCOL)
+    #     log_file.write(str(id) +'\n')
+    #     log_file.write(sen_ddd +'\n')
+    #     log_file.flush()
     #     raise Argument
 
 
@@ -1159,7 +1244,7 @@ def main(args):
     print(f"Text Preprocessed to remove newline and Seed: {seed}")
 
     start = time.time()
-    #try:
+ #   try:
     id_sen_dict, id_sen_score_dict = text_score_generate(num_var, lang, ref_lines, noise_planner_num, del_noise_lam,
                                                          mask_noise_lam, device, args, log_file, dir_path)
     import pickle

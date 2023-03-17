@@ -14,15 +14,18 @@ import argparse
 from tqdm import tqdm
 from scipy.stats import pearsonr, kendalltau
 from transformers import XLMRobertaModel, XLMRobertaTokenizer
+
+
 def adjust_punctuation(sen_list):
     new_list = []
     for sen in sen_list:
         new_sen = []
         for i, char in enumerate(sen):
-            if char.isalnum() or (char == "'" and  i+1 != len(sen) and i !=0 and sen[i - 1].isalnum() and sen[i + 1].isalnum()):
+            if char.isalnum() or (
+                    char == "'" and i + 1 != len(sen) and i != 0 and sen[i - 1].isalnum() and sen[i + 1].isalnum()):
                 new_sen.append(char)
             elif char in [',', '.']:
-                while i > 0 and new_sen[-1] == ' ':
+                while len(new_sen) > 0 and new_sen[-1] == ' ':
                     new_sen.pop(-1)
                 new_sen.append(char)
             else:
@@ -30,6 +33,7 @@ def adjust_punctuation(sen_list):
         new_sen = ''.join(new_sen)
         new_list.append(" ".join(new_sen.split()))
     return new_list
+
 
 class robertaEncoder(BERTEncoder):
     def __init__(self, pretrained_model: str) -> None:
@@ -76,16 +80,23 @@ class OurSEScore(ReferencelessRegression):
 
 
 class CustomDataset(Dataset):
-    def __init__(self, references, predictions, scores, pretrained_model='xlm-roberta-large'):
+    def __init__(self, references, predictions, scores, pretrained_model='xlm-roberta-large', debugger=None):
         self.references = references
         self.predictions = predictions
         self.scores = scores
         self.tokenizer = XLMRobertaTokenizer.from_pretrained(pretrained_model)
+        self.debugger = debugger
 
     def __len__(self):
         return len(self.references)
 
     def __getitem__(self, idx):
+        if self.debugger is not None:
+            self.debugger.write(str(idx) + '\n')
+            self.debugger.write(self.references[idx] + '\n')
+            self.debugger.write(self.predictions[idx] + '\n')
+            self.debugger.write(str(self.scores[idx]) + '\n')
+            self.debugger.flush()
         references_tokens = self.tokenizer(self.references[idx])
         references_input_ids = references_tokens.data['input_ids']
         references_attention_masks = references_tokens.data['attention_mask']
@@ -119,11 +130,11 @@ def correlation(pred, real):
     return p, k
 
 
-def load_dataset(path):
+def load_dataset(path, debugger=None):
     data = pd.read_csv(path)
     return CustomDataset(references=adjust_punctuation(data['ref'].to_list()),
                          predictions=adjust_punctuation(data['mt'].to_list()),
-                         scores=data['score'].to_list())
+                         scores=data['score'].to_list(), debugger=debugger)
 
 
 def parser_args():
@@ -138,6 +149,7 @@ def parser_args():
     parser.add_argument('-train_path', default=None)
     parser.add_argument('-test_path', default=None)
     parser.add_argument('-save_dir', default=None)
+    parser.add_argument('-debugger', default=None)
     args = parser.parse_args()
     return args
 
@@ -151,59 +163,72 @@ def train():
     test_batch_size = int(args.test_batch_size)
     epochs = args.epochs
     train_path = args.train_path
+    print(train_path)
     test_path = args.test_path
     drop_out = args.drop_out
     save_dir = args.save_dir
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    # device = 'cpu'
-    score_function = OurSEScore(drop_out=drop_out).to(device)
-    loss_function = nn.MSELoss()
-    optimizer = torch.optim.Adam(score_function.parameters(), lr=lr, betas=(beta_1, beta_2))
-    train_dataset = load_dataset(train_path)
-    train_dataloader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True, collate_fn=tokenize_and_pad)
-    test_dataset = load_dataset(test_path)
-    test_dataloader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False, collate_fn=tokenize_and_pad)
-    for epoch in range(epochs):
-        score_function.train()
-        train_losses = []
-        for batch in tqdm(train_dataloader):
-            references_input_ids, references_attention_masks, predictions_input_ids, predictions_attention_masks, scores = batch
-            predicted_scores = \
-            score_function.forward(references_input_ids.to(device), references_attention_masks.to(device),
-                                   predictions_input_ids.to(device), predictions_attention_masks.to(device))['score'].squeeze()
-            loss = loss_function(predicted_scores, scores.to(device))
-            loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-            train_losses.append(loss.detach().item())
-        score_function.eval()
-        with torch.no_grad():
-            test_predictions = []
-            test_real_scores = []
-            for batch in tqdm(test_dataloader):
+    debugger = args.debugger
+    if debugger is not None:
+        debugger = save_dir + '/' + debugger + '.txt'
+        debugger = open(debugger, 'w')
+    try:
+        device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        # device = 'cpu'
+        score_function = OurSEScore(drop_out=drop_out).to(device)
+        loss_function = nn.MSELoss()
+        optimizer = torch.optim.Adam(score_function.parameters(), lr=lr, betas=(beta_1, beta_2))
+        train_dataset = load_dataset(train_path, debugger=debugger)
+        train_dataloader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=False,
+                                      collate_fn=tokenize_and_pad)
+        test_dataset = load_dataset(test_path)
+        test_dataloader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False, collate_fn=tokenize_and_pad)
+        for epoch in range(epochs):
+            score_function.train()
+            train_losses = []
+            for batch in tqdm(train_dataloader):
                 references_input_ids, references_attention_masks, predictions_input_ids, predictions_attention_masks, scores = batch
                 predicted_scores = \
-                score_function.forward(references_input_ids.to(device), references_attention_masks.to(device),
-                                       predictions_input_ids.to(device), predictions_attention_masks.to(device))[
-                    'score'].squeeze()
-                test_predictions.append(predicted_scores.detach().cpu())
-                test_real_scores.append(scores)
-            test_predictions = torch.cat(test_predictions)
-            test_real_scores = torch.cat(test_real_scores)
-            test_mse = loss_function(test_predictions, test_real_scores)
-            pearson_correlation, kendell_tau_correlation = correlation(test_predictions, test_real_scores)
-        print(
-            f"For epoch {epoch} the average train loss {np.mean(train_losses)} | the test loss {test_mse} |"
-            f" test pearson correlation {pearson_correlation:.4f} | test kendell tau correlation {kendell_tau_correlation:.4f}")
-        with open(save_dir + '/results.txt', 'a') as f:
-            f.write(f"For epoch {epoch}\n")
-            f.write(f"Average train loss {np.mean(train_losses):.4f}\n")
-            f.write(f"Test loss {test_mse:.4f}\n")
-            f.write(f"Test pearson correlation {pearson_correlation:.4f}\n")
-            f.write(f"Test kendell tau correlation {kendell_tau_correlation:.4f}\n")
-            f.write('\n')
-        torch.save(score_function.state_dict(), save_dir + f'/model_weights_epoch_{epoch}.pkl')
-
+                    score_function.forward(references_input_ids.to(device), references_attention_masks.to(device),
+                                           predictions_input_ids.to(device), predictions_attention_masks.to(device))[
+                        'score'].squeeze()
+                loss = loss_function(predicted_scores, scores.to(device))
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
+                train_losses.append(loss.detach().item())
+            score_function.eval()
+            with torch.no_grad():
+                test_predictions = []
+                test_real_scores = []
+                for batch in tqdm(test_dataloader):
+                    references_input_ids, references_attention_masks, predictions_input_ids, predictions_attention_masks, scores = batch
+                    predicted_scores = \
+                        score_function.forward(references_input_ids.to(device), references_attention_masks.to(device),
+                                               predictions_input_ids.to(device), predictions_attention_masks.to(device))[
+                            'score'].squeeze()
+                    test_predictions.append(predicted_scores.detach().cpu())
+                    test_real_scores.append(scores)
+                test_predictions = torch.cat(test_predictions)
+                test_real_scores = torch.cat(test_real_scores)
+                test_mse = loss_function(test_predictions, test_real_scores)
+                pearson_correlation, kendell_tau_correlation = correlation(test_predictions, test_real_scores)
+            print(
+                f"For epoch {epoch} the average train loss {np.mean(train_losses)} | the test loss {test_mse} |"
+                f" test pearson correlation {pearson_correlation:.4f} | test kendell tau correlation {kendell_tau_correlation:.4f}")
+            with open(save_dir + '/results.txt', 'a') as f:
+                f.write(f"For epoch {epoch}\n")
+                f.write(f"Average train loss {np.mean(train_losses):.4f}\n")
+                f.write(f"Test loss {test_mse:.4f}\n")
+                f.write(f"Test pearson correlation {pearson_correlation:.4f}\n")
+                f.write(f"Test kendell tau correlation {kendell_tau_correlation:.4f}\n")
+                f.write('\n')
+            torch.save(score_function.state_dict(), save_dir + f'/model_weights_epoch_{epoch}.pkl')
+    except Exception as Argument:
+            if debugger is not None:
+                debugger.write(f"{str(Argument)} \n")
+                import traceback
+                debugger.write(traceback.format_exc())
+                debugger.flush()
 
 if __name__ == "__main__":
     train()

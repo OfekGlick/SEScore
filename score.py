@@ -14,7 +14,7 @@ def parser_args():
     args = argparse.ArgumentParser()
     args.add_argument('-num_var', type=int, default=1)
     args.add_argument('-ref', type=str, default='case_study_ref/wmt_train_small_fixed.txt')
-    args.add_argument('-batch_size', default=160, type=int)
+    args.add_argument('-batch_size', default=200, type=int)
     args.add_argument('-save_dir', default="big_models_results", type=str)
     args.add_argument('-lam', default=1, type=int)
     args.add_argument('-analysis_mode', default=False, action='store_true')
@@ -174,6 +174,14 @@ def severity_measure_with_continuous_scoring_arithmetic_mean(mnli_model, mnli_to
     return scores
 
 
+def correct_dict(sen_dict):
+    new_sen_dict = {}
+    for key in sen_dict.keys():
+        sen_list = sen_dict[key]
+        for i in range(len(sen_list)):
+            sen_list[i] = sen_list[i].split('[')[0]
+        new_sen_dict[key] = sen_list
+    return new_sen_dict
 def score_corrupt_sentences(ref_lines, args):
     path_to_pickle_dict = args.pickle_path
     batch_size = args.batch_size
@@ -201,6 +209,9 @@ def score_corrupt_sentences(ref_lines, args):
     m = nn.Softmax(dim=1)
     with open(path_to_pickle_dict, 'rb') as f:
         sentences_dict = pickle.load(f)
+        sentences_dict = {k:sentences_dict[k]['text'] for k in sentences_dict.keys()}
+        sentences_dict = {k:[x.replace("♣", " ") for x in sentences_dict[k]] for k in sentences_dict.keys()}
+    sentences_dict = correct_dict(sentences_dict)
     for i in range(1, 6):
         prev = []
         curr = []
