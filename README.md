@@ -15,7 +15,8 @@ While this method performs very well and has improved upon the SOTA, we believe 
 We propose two changes to the severity score metric which will allow it to be non-monotonic and also continuous. For more details please refer to the `Research Proposal.pptx` file
 
 ### Results
-Will be published soon.
+![NLP poster with graph](https://user-images.githubusercontent.com/63671077/229360806-8e5369f6-04a8-4b94-a4be-c6a34733f649.jpg)
+
 
 ## How to run?
 ### Run new_xlm_mbart_data.py for English:
