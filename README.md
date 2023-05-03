@@ -22,6 +22,4 @@ We propose two changes to the severity score metric which will allow it to be no
 ### Run new_xlm_mbart_data.py for English:
 python3 new_xlm_mbart_data.py -num_var 10 -lang en_XX -src case_study_src -ref case_study_ref -save save_file_name -severity ['original','2_1','2_2'] -whole_words True
 
-# Disclaimer
-Most of the work done on this project was by the original authors of the paper! We simply added our methods and tested their effectiveness. All credits of the original work goes to the original authors. 
 
